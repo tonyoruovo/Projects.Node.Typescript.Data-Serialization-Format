@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "strictNullChecks": true,
+        "strict": true,
+        // Ensure that .d.ts files are created by tsc, but not .js files
+        "declaration": true,
+        // Ensure that Babel can safely transpile files in the TypeScript project
+        "isolatedModules": true,
+        "noImplicitAny": true,//prevents fields, parameters and method to be implicitly decalared as any
+        "outDir": "./.bin/",
+        "module": "ESNext",
+        "moduleResolution": "nodenext",
+        "lib": [
+            "ESNext"
+        ],
+        "target": "ESNext",
+        "watch": true
+    },
+    "exclude": [
+        "node_modules"
+    ]
+}
