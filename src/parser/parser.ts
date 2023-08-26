@@ -315,6 +315,7 @@ namespace parser {
   PR extends Parser> extends Command {
     /**
      * @inheritdoc
+     * @override
      * Does the parsing as usual
      */
     parse(
