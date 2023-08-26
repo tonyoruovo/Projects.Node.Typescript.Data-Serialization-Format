@@ -32,7 +32,59 @@ import parser from "./parser.js";
  * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly.
  */
 namespace ini {
+    function isText(e: Expression): e is Text {
+        return utility.isValid(e) && e instanceof Text;
+    }
+    function skipBlankLines(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): void {
+        while(p.match(EOL, l, s, pa)) p.consume(EOL, l, s, pa);
+    }
+    function hasIdentifier(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): boolean {
+        return p.match(TEXT, l, s, pa) || p.match(D_QUOTE, l, s, pa) || p.match(QUOTE, l, s, pa);
+    }
+    function parseComment(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): string[] {
+        const comments = Array<string>();
+        while (true) {
+            if(p.match(COMMENT, l, s, pa)) comments.push(p.consume(COMMENT, l, s, pa).value);
+            else if(p.match(SECTION_START, l, s, pa)) comments.push(p.consume(SECTION_START, l, s, pa).value);
+            else if(p.match(D_QUOTE, l, s, pa)) comments.push(p.consume(D_QUOTE, l, s, pa).value);
+            else if(p.match(QUOTE, l, s, pa)) comments.push(p.consume(QUOTE, l, s, pa).value);
+            else if(p.match(TEXT, l, s, pa)) comments.push(p.consume(TEXT, l, s, pa).value);
+            else if(p.match(SUB_SECTION, l, s, pa)) comments.push(p.consume(SUB_SECTION, l, s, pa).value);
+            else if(p.match(SECTION_END, l, s, pa)) comments.push(p.consume(SECTION_END, l, s, pa).value);
+            else if(p.match(ASSIGNMENT, l, s, pa)) comments.push(p.consume(ASSIGNMENT, l, s, pa).value);
+            else if(p.match(D_QUOTE_END, l, s, pa)) comments.push(p.consume(D_QUOTE_END, l, s, pa).value);
+            else if(p.match(QUOTE_END, l, s, pa)) comments.push(p.consume(QUOTE_END, l, s, pa).value);
+            else if(p.match(ESCAPE, l, s, pa)) comments.push(p.consume(ESCAPE, l, s, pa).value);
+            else if(p.match(ESCAPED, l, s, pa)) comments.push(p.consume(ESCAPED, l, s, pa).value);
+            else if(p.match(EOL, l, s, pa)) break;
+        }
+        return comments;
+    }
+    function comments(preceding = Object.freeze(Array<string>()), inline: string = "") {
+        return {preceding, inline}
+    }
+    function emptyComment() {
+        return comments();
+    }
+    function traverseSection(names: string[], exp: Expression, value?: string, comments?: {readonly preceding: readonly string[], readonly inline?: string}): void {
+        if(utility.isValid(value) && names.length === 1) {
+            const name = names.shift()!;
+            let property = (exp as Section).get(name);
+            if(!utility.isValid(property)) property = new Property(comments ?? {preceding: Object.freeze([])});
+            else if(!(property instanceof Property)) throw new parser.ParseError("section name and property name collide");
+            (property as Property).add(value!);
+            return;
+        } else if(names.length === 0) return;
+        let name = names.shift()!;
+        let section = (exp as Section).get(name);
+        if(!utility.isValid(section)) {
+            section = new Section({preceding: Object.freeze([])});
+            (exp as Section).add(name, section);
+        } else if(!(section instanceof Section)) throw new parser.ParseError("section name and property name collide");
+        return traverseSection(names, section, value);
+    }
     function mergeTokens(t: Token[]){
+        // return t.reduce((lexeme: string, tk: Token) => lexeme + tk.value, "");
         let text = "";
         for (let i = 0; i < t.length; i++) {
             text += t[i].value;
@@ -172,14 +224,17 @@ namespace ini {
     }
     export class Params {
         /**
-         * The current section's name i.e the section being parsed
+         * The current section's name i.e the name of a property of {@link global} that was last parsed
          * @type {string}
          */
         section: string[] = [];
+        global = new Section;
         /**An array of strings representing consecutiveline of comments. This value is empty the moment a {@link Section} or {@link Property} is parsed. */
         block = Array<string>();
+        /**inline comments as a `string`. This value is reset every time */
+        inline: string = "";
         /**inline comments complete with their line number and actual comment */
-        inline: Map<number, string> = new Map();
+        // inline: Map<number, string> = new Map();
     }
     /**
      * - `'['` section start
@@ -210,14 +265,13 @@ namespace ini {
           return false;
         }
     }
+
     export const EOF: parser.GType<string> = new Type("-1", Number.MIN_SAFE_INTEGER);
     export const EOL: parser.GType<string> = new Type("0", 1);
-    // export const LINE: parser.GType<string> = new Type("1", 2);
     export const SECTION_START: parser.GType<string> = new Type("1", 2);
     export const QUOTE: parser.GType<string> = new Type("2", 2);
     export const D_QUOTE: parser.GType<string> = new Type("3", 2);
     export const TEXT: parser.GType<string> = new Type("4", 2);
-    // export const SECTION_START: parser.GType<string> = new Type("1", 2);
     export const SUB_SECTION: parser.GType<string> = new Type("5", 2);
     export const SECTION_END: parser.GType<string> = new Type("6", 2);
     export const ASSIGNMENT: parser.GType<string> = new Type("7", 2);
@@ -226,6 +280,7 @@ namespace ini {
     export const D_QUOTE_END: parser.GType<string> = new Type("10", 2);
     export const ESCAPE: parser.GType<string> = new Type("11", 2);
     export const ESCAPED: parser.GType<string> = new Type("12", 2);
+
     class Token implements parser.GToken<string> {
         public readonly length;
         constructor(
@@ -448,55 +503,116 @@ namespace ini {
     export interface Command extends parser.GCommand<Token, Expression, Syntax, MutableLexer, Parser> {
       parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer, s: Syntax, pa?: Params): Expression;
     }
-    class Comment implements Command {
-        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            ap ??= new Section({preceding:Object.freeze([])});
-            if(s.comments.retain){
-                const tokens = Array<Token>();
-                if(p.match(COMMENT, l, s, pa)) tokens.push(p.consume(COMMENT, l, s, pa) as Token);
-                pa!.block.push(mergeTokens(tokens))
-            }
-            p.consume(EOL, l, s, pa);
-            return ap;
-        }
+    abstract class LeftAndRight implements Command {
+        constructor(public readonly direction: parser.Direction){}
+        /**
+         * @virtual
+         */
+        abstract parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression;
     }
-    class SectionCmd implements Command {
-        #traverseSection(names: string[], exp: Expression, value?: string, comments?: {readonly preceding: readonly string[], readonly inline?: string}): void {
-            if(utility.isValid(value) && names.length === 1) {
-                const name = names.shift()!;
-                let property = (exp as Section).get(name);
-                if(!utility.isValid(property)) property = new Property(comments ?? {preceding: Object.freeze([])});
-                else if(!(property instanceof Property)) throw new parser.ParseError("section name and property name collide");
-                (property as Property).add(value!);
-                return;
-            } else if(names.length === 0) return;
-            let name = names.shift()!;
-            let section = (exp as Section).get(name);
-            if(!utility.isValid(section)) {
-                section = new Section({preceding: Object.freeze([])});
-                (exp as Section).add(name, section);
-            } else if(!(section instanceof Section)) throw new parser.ParseError("section name and property name collide");
-            return this.#traverseSection(names, section, value);
-        }
+    class ParseComment extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            ap ??= new Section({preceding:Object.freeze([])});
-            const section = Array<string>();
-            while(true){
-                if(p.match(SUB_SECTION, l, s, pa)){}
-            }
-            do {
-                if(p.match(SUB_SECTION, l, s, pa)) p.consume(SUB_SECTION, l, s, pa);
-                const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
-                if(text instanceof Text){
-                    section.push(text.text);
+            switch (this.direction) {
+                case parser.Direction.PREFIX:{
+                    pa!.block.push(yp.value);
+                    while (!p.match(EOL, l, s, pa!)) {
+                        const comment = p.consume(COMMENT, l, s, pa).value;
+                        if(s.comments.retain){
+                            pa!.block.push(comment);
+                        }
+                    }
                 }
-                else throw new parser.ParseError("section name not found")
-            } while (p.match(SUB_SECTION, l, s, pa));
-            p.consume(SUB_SECTION, l, s, pa);
+                case parser.Direction.POSTFIX:
+                case parser.Direction.INFIX:
+                default: {
+                    pa!.inline = yp.value;
+                }
+            }
             return ap;
         }
     }
-    class String implements Command {
+    class Assign extends LeftAndRight {
+        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            switch(this.direction) {
+                case parser.Direction.PREFIX: {
+                    const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                    const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
+                    const preceding = pa!.block;
+                    pa!.block = [];
+                    //parse inline comments
+                    // if(p.match(COMMENT, l, s, pa!)) p.parse(l, s, pa);
+                    return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, "", right);
+                }
+                case parser.Direction.INFIX:
+                case parser.Direction.POSTFIX:
+                default: {
+                    const left  = isText(ap) ? (ap as Text).text : "";
+                    const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                    const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
+                    const preceding = pa!.block;
+                    pa!.block = [];
+                    //parse inline comments
+                    // if(p.match(COMMENT, l, s, pa!)) p.parse(l, s, pa);
+                    return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, left, right);
+                }
+            }
+        }
+    }
+    class ParseSection implements Command {
+        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            ap ??= new Section(emptyComment());
+
+            //create the section name
+            if(utility.isValid(s.nesting) && s.nesting!.relative && p.match(SUB_SECTION, l, s, pa)){
+                do {
+                    p.consume(SUB_SECTION, l, s, pa);
+                    const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                    if(text instanceof Text){
+                        pa!.section.push(text.text);
+                    }
+                    else throw new parser.ParseError("section name not found")
+                } while (p.match(SUB_SECTION, l, s, pa));
+                // pa!.section = pa!.section.concat(section);
+            } else {
+                pa!.section = [];
+                while(true) {
+                    const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                    if(text instanceof Text) pa!.section.push(text.text);
+                    else throw new parser.ParseError("section name not found");
+                    if(p.match(SUB_SECTION, l, s, pa)) p.consume(SUB_SECTION, l, s, pa);
+                    else {//if (p.match(SECTION_END, l, s, pa)) {
+                        p.consume(SECTION_END, l, s, pa);
+                        break;
+                    } 
+                    // pa!.section = section
+                }
+            }
+            // p.consume(EOL, l, s, pa);
+            skipBlankLines(l, s, p, pa!);
+            
+            //parse all key value lines
+            while(hasIdentifier(l, s, p, pa!)) {
+                const property = p.parse(l, s, pa);
+                if(property instanceof KeyValue || property instanceof Text){
+                    section.add(property)
+                }
+                skipBlankLines(l, s, p, pa!);
+            }
+            
+            const preceding = Object.freeze(pa!.block);
+            //parse inline comments
+            if(p.match(COMMENT, l, s, pa) && s.comments.inline) {
+                do {
+                    pa!.inline += p.consume(COMMENT, l, s, pa).value;
+                } while (!p.match(EOL, l, s, pa));
+            }
+            traverseSection(section, ap, undefined, { preceding, inline: pa!.inline });
+            pa!.block = [];
+            pa!.inline = "";
+            return ap;
+        }
+    }
+    class ParseText implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             if(yp.type.equals(QUOTE)) {
                 const tokens = Array<Token>();
@@ -539,7 +655,15 @@ namespace ini {
                 }
                 return new Text(mergeTokens(tokens))
             }
-            return new Text(yp.value);
+            let string = yp.value;
+            while(p.match(TEXT, l, s, pa)) string += p.consume(TEXT, l, s, pa).value;
+            return new Text(string);
+        }
+    }
+    class EndLine implements Command {
+        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            skipBlankLines(l,s, p, pa!);
+            return ap;
         }
     }
     export interface Expression extends expression.GExpression<Format> {
@@ -549,17 +673,150 @@ namespace ini {
         };
       format(format: Format, syntax?: Syntax, params?: Params | any): void;
     }
+    /**
+     * An example of all the different scenarios with a key-value pair
+     * ```ini
+     * [section]
+     * ;Just a text
+     * keyWithoutValue
+     * = valueWithoutKey
+     * = anotherKeyWithoutValue
+     * ;blank line
+     * 
+     * key=value
+     * key=anotherValue #Repeated value creates an array where key: ["value", "anotherValue"]
+     * ```
+     */
+    class KeyValue implements Expression {
+        constructor(public readonly comments: { preceding: readonly string[], inline?: string}, public readonly key: string, public readonly value: string){}
+        format(format: Format, syntax?: Syntax | undefined, params?: any): void {
+            format.append(this, syntax, params);
+        }
+        debug(): string {
+            throw new Error("Method not implemented.");
+        }
+        compareTo(obj?: expression.Expression | undefined): utility.Compare {
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
+        }
+        equals(obj?: object | undefined): boolean {
+            if (obj instanceof Section) return this.compareTo(obj) === 0;
+            return false;
+        }
+        hashCode32(): number {
+            return utility.hashCode32(false, utility.asHashable(this.key), utility.asHashable(this.value), utility.asHashable(this.comments), /*utility.asHashable(utility.hashCode32ForArray(false, this.#props))*/);
+        }
+        toString(): string {
+          return this.debug();
+        }
+    }
+    class NamedSection implements Expression{
+        private _values : (NamedSection | NamedProp)[];
+        constructor(public readonly comments: {readonly preceding: readonly string[], inline?: string}, public readonly name: string, values: (NamedSection | NamedProp)[] = []){
+            this._values = values;
+        }
+        public get values() : readonly (NamedSection | NamedProp)[] {
+            return Object.freeze([...this._values]);
+        }
+        
+        public value(name: string): NamedSection | NamedProp | undefined {
+            return this._values.filter(x => x.name === name)[0];
+        }
+        format(format: Format, syntax?: Syntax | undefined, params?: any): void {
+            format.append(this, syntax, params);
+        }
+        debug(): string {
+            throw new Error("Method not implemented.");
+        }
+        compareTo(obj?: expression.Expression | undefined): utility.Compare {
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
+        }
+        equals(obj?: object | undefined): boolean {
+            if (obj instanceof Section) return this.compareTo(obj) === 0;
+            return false;
+        }
+        hashCode32(): number {
+            return utility.hashCode32(false, utility.asHashable(this._values), utility.asHashable(this.comments), /*utility.asHashable(utility.hashCode32ForArray(false, this.#props))*/);
+        }
+        toString(): string {
+          return this.debug();
+        }
+    }
+    class NamedProp implements Expression{
+        private _values: string[];
+        constructor(public readonly comments: {readonly preceding: readonly string[], inline?: string}, public readonly name: string, values: string[] = []){
+            this._values = values;
+        }
+        public get values() : readonly string[] {
+            return Object.freeze([...this._values]);
+        }
+        public value(index = 0): string | undefined {
+            return this.values[index];
+        }
+        public add(v : string) {
+            this._values.push(v);
+        }
+        format(format: Format, syntax?: Syntax | undefined, params?: any): void {
+            throw new Error("Method not implemented.");
+        }
+        debug(): string {
+            throw new Error("Method not implemented.");
+        }
+        compareTo(obj?: expression.Expression | undefined): utility.Compare {
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
+        }
+        equals(obj?: object | undefined): boolean {
+            if (obj instanceof Property) return this.compareTo(obj) === 0;
+            return false;
+        }
+        hashCode32(): number {
+            return utility.hashCode32(false, utility.asHashable(this.comments), utility.asHashable(this._values));
+        }
+        public remove(index: number = 0) {
+            this._values.splice(index);
+        }
+        toString(): string {
+          return this.debug();
+        }
+    }
     class Section implements Expression {
         // #props;
-        private readonly _map: {[key: string]: Expression};
-        constructor(/*public readonly name: string, */public readonly comments: {
+        private readonly _map: {[key: string]: Section | Property};
+        constructor(public readonly comments: {
             readonly preceding: readonly string[],
             readonly inline?: string
         }) { /*this.#props = Array<Expression>();*/ this._map = {}; }
-        public add(name: string, e: Expression){
-            // this.#props[index] = e;
-            this._map[name] = e;
+        private static addExp(names: string[], e: Property | Text, section: Section): void {
+            if(names.length === 1) {
+                section.add(names.pop()!, e);
+                return;
+            }
+            const name = names.shift()!;
+            if(!utility.isValid(section._map[name]))section._map[name] = new Section(emptyComment());
+            return this.addExp(names, e, section._map[name] as Section);
         }
+        public add(name: string | string[], e: Property | Text){
+            // this.#props[index] = e;
+            if(Array.isArray(name)){
+                Section.addExp(name, e, this);
+            } else if(typeof name === "string") {
+                if((!utility.isValid(this._map[name])))
+                this._map[name] = new Section(emptyComment());//e instanceof Property ? e : new Property({preceding: Object.freeze([])},);
+                if(e instanceof Property){
+                    if (this._map[name] instanceof Section) this._map[name] = e;
+                    else if(this._map[name] instanceof Property)
+                            for (let i = 0; i < (e as Property).values.length; i++) {
+                                (this._map[name] as Property).add((e as Property).values[i]);
+                    }
+                } else if(e instanceof Text) {
+                    if (this._map[name] instanceof Section) (this._map[name] as Section).add((e as Text).text, new Property(emptyComment()));
+                    // else if(this._map[name] instanceof Property)
+                    //         for (let i = 0; i < (e as Property).values.length; i++) {
+                    //             (this._map[name] as Property).add((e as Property).values[i]);
+                    // }
+                }
+            }
+        }
+
         format(format: Format, syntax?: Syntax | undefined, params?: any): void {
             format.append(this, syntax, params);
         }
@@ -576,9 +833,6 @@ namespace ini {
         hashCode32(): number {
             return utility.hashCode32(false, utility.asHashable(this._map), utility.asHashable(this.comments), /*utility.asHashable(utility.hashCode32ForArray(false, this.#props))*/);
         }
-        // public get properties() {
-        //     return Object.freeze(this.#props);
-        // }
         public get(name: string): Expression{
             return this._map[name];
         }
@@ -590,17 +844,38 @@ namespace ini {
         }
     }
     class Property implements Expression {
-        #_values;
-        constructor(public readonly comments: {
-            readonly preceding: readonly string[],
-            readonly inline?: string
-        }, initialValue?: string) {
-            this.#_values = Array<string>();
-            if(utility.isValid(initialValue)) this.#_values.push(initialValue!);
+        private readonly _values: string[];
+        public comments: { readonly preceding: readonly string[]; readonly inline?: string | undefined; };
+        // private readonly _name: string;
+        constructor(initialValue?: KeyValue) {
+            this.comments = emptyComment();
+            this._values = [];
+            // this._name = initialValue.key;
+            if(utility.isValid(initialValue))
+            this._values.push(initialValue!.value);
         }
-        public add(value: string, index: number = this.#_values.length) {
-            this.#_values[index] = value;
+        public add(kv: KeyValue): void;
+        public add(value: string): void;
+        public add(kv: KeyValue|string) {
+            // if(!utility.isValid(this._values[kv.key])) this._values[kv.key] = [];
+            if(typeof kv === "string") {
+                this._values.push(kv);
+            } else if(typeof kv === "object") {
+                this._values.push(kv.value);
+            }
         }
+        public get values(): readonly string[] {
+            return Object.freeze([...this._values]);
+        }
+        public value(index = 0): string | undefined {
+            return this.values[index];
+        }
+        public remove(index = 0): void {
+            this._values.splice(index, 1);
+        }
+        // public add(value: string, index: number = this.#_values.length) {
+        //     this.#_values[index] = value;
+        // }
         format(format: Format, syntax?: Syntax | undefined, params?: any): void {
             throw new Error("Method not implemented.");
         }
@@ -615,21 +890,15 @@ namespace ini {
             return false;
         }
         hashCode32(): number {
-            return utility.hashCode32(false, utility.asHashable(this.comments), utility.asHashable(this.#_values));
-        }
-        public remove(index: number = 0) {
-            this.#_values.splice(index);
+            return utility.hashCode32(false, utility.asHashable(this.comments), utility.asHashable(this._values));
         }
         toString(): string {
           return this.debug();
         }
-        public get values() {
-            return Object.freeze(this.#_values);
-        }
     }
     class Text implements Expression {
         readonly comments;
-        constructor(public readonly text: string){
+        constructor(public readonly text: string = text.trim()){
             this.comments = { preceding: Object.freeze(Array<string>()) };
         }
         format(format: Format<any>, syntax?: Syntax | undefined, params?: any): void {
