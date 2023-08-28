@@ -2,7 +2,7 @@
   "name": "projects.node.typescript.data-serialization-format",
   "version": "0.0.1",
   "type": "module",
-  "description": "",
+  "description": "A package for parsing, transforming and formatting serialized data",
   "main": "index.js",
   "scripts": {
     "test": "tsc && node ./.bin/parser/csv.test"

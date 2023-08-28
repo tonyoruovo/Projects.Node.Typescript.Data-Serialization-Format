@@ -172,7 +172,7 @@ namespace expression {
      * @param {F} f a generic format object
      * @param {P} params the parameters injected into this
      * method as an extrinsic state of this object.
-     * @template P
+     * @template P A mutable visitor that allows this expression to gain readonly access to values from it's state that were set by a parser.
      */
     format<P = any>(f: F, s?: parser.Syntax, params?: P): void;
     /**
@@ -243,7 +243,8 @@ namespace expression {
    * be the actual representation of the data in it's most pure form.
    * For example the data may be in binary form.  Note thatwhen
    * the source is an `Expression`, then it may not be included
-   * as a state in this object. \
+   * as a state in this object. A `Format` is the opposite of a {@link parser.Parser parser}
+   * as it creates an external representation of the data created by a parser. \
    * \
    * It is expected that implementors implement this interface as
    * a mutable object for a fast exprerience for users, hence

@@ -13,10 +13,15 @@ import iconv from "iconv-lite";
  * @summary Defines the constituents of the csv pipeline.
  * @description The csv pipeline constitutes tokenisers (lexers) for tokenising text and json data; a parser which translates the
  * tokens into expressions; formatters which can create file, in-memory and simple string formats; a converter which binds several
- * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly.
- * @remark
- * Since the csv family is line oriented (data can sectioned into lines), a simple lexer needs to exist that tokenises a document by
- * lines and not by inidividual characters.
+ * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly. \
+ * \
+ * While this pipeline can parse tsv and other delimited-separator-value type formats, it adhere to their individual specification
+ * e.g there is no means for using proper escapes rather the quote character within a quoted string. This will be fixed in the future.
+ * @remark ## Implementation note:
+ * In the near future I hope to implement a feature where the delimiter can be read from the first line of a stream/file in the form `Sep=;`
+ * This is case-insensitive ofcourse. \
+ * \
+ * I Also need a feature where a table can be transposed such that it's rows become the columns vice-versa.
  */
 namespace csv {
   /**
@@ -277,11 +282,11 @@ namespace csv {
      */
     #bom = false;
     /**
-     * Check for a bom in the document to be parsed. The default value is `"utf-8"`
+     * Check for a bom in the document to be parsed. The default value in it's `encoding` field is `"utf-8"`
      * @default {"utf-8"}
      * @defaultValue `"utf-8"`
      */
-    #enc: parser.Encoding = "utf-8";
+    private _md = {encoding: "utf-8" as parser.Encoding, fileExt: "csv", isStandard: true, mediaType: "text/csv", standard: "Rfc 4180"};
     /**
      * The character that enables the syntax to identify nested object(s).
      * The default value is `.`.
@@ -542,7 +547,7 @@ namespace csv {
      * @returns {SyntaxBuilder} the same builder object for method chaining
      */
     public setEncoding(enc: parser.Encoding): SyntaxBuilder {
-      this.#enc = enc;
+      this._md.encoding = enc??this._md.encoding;
       return this;
     }
     /**
@@ -622,6 +627,51 @@ namespace csv {
       return this;
     }
     /**
+     * Sets the {@link Syntax.metadata.fileExt extension string} associated with the syntax as specified by {@link Syntax.metadata.fileExt}
+     * @remark
+     * The default is `'csv'`.
+     * @param {string} ext the file extension as a string. This should not have any trailing dot(s). An undefined or null value has no effect
+     * @returns {SyntaxBuilder} the same builder object for method chaining
+     */
+    public setFileExt(ext: string): SyntaxBuilder {
+      this._md.fileExt = ext??this._md.fileExt;
+      return this;
+    }
+    /**
+     * Sets the {@link Syntax.metadata.isStandard isStandard property} in the syntax to be built.
+     * @remark
+     * The default is `true`.
+     * @param {boolean} b `true` if the syntax is a web standard `false` if otherwise. A truthy value will be converted to a boolean.
+     * @returns {SyntaxBuilder} the same builder object for method chaining
+     */
+    public setIsStandard(b: boolean) : SyntaxBuilder {
+      this._md.isStandard = !!b;
+      return this;
+    }
+    /**
+     * Sets the {@link Syntax.metadata.mediaType media type} associated with the data for which the syntax is being built.
+     * @remark
+     * The default is `'text/csv'`
+     * @param {string} mediaType the MIME type for the syntax
+     * @returns {SyntaxBuilder} the same builder object for method chaining
+     */
+    public setMediaType(mediaType: string) : SyntaxBuilder {
+      this._md.mediaType = mediaType??this._md.mediaType;
+      return this;
+    }
+    /**
+     * Sets the {@link Syntax.metadata.standard standard} associated with the data for which the syntax is being built.
+     * The standard is a string associated with the media type, web specification, schema or syntax definition e.g a **R**equest **F**or **C**ommenid.t
+     * @remark
+     * The default is `'Rfc 4180'`
+     * @param {string} standard a string representing the standard specification for the data that this syntax will be created for.
+     * @returns {SyntaxBuilder} the same builder object for method chaining
+     */
+    public setStandard(standard: string) : SyntaxBuilder {
+      this._md.standard = standard??this._md.standard;
+      return this;
+    }
+    /**
      * @summary Builds a `Syntax` object and returns it given all the options that were set.
      * @description
      * Builds and returns an immutable `Syntax` object.
@@ -655,7 +705,7 @@ namespace csv {
         trimLeadingSpaces: this.#trimLeadingSpaces,
         trimTrailingSpaces: this.#trimTrailingSpaces,
         enfSym: this.#rowSym,
-        encoding: this.#enc,
+        metadata: this._md,
         bom: this.#bom,
         nop: this.#nop,
         nap: this.#nap,
@@ -692,7 +742,7 @@ namespace csv {
       this.#isWs = from.isWhitespace;
       this.#rowSym = from.enfSym;
       this.#dQuote = from.dQuotes;
-      this.#enc = from.encoding;
+      this._md = from.metadata;
       this.#bom = from.bom;
       this.#nop = from.nop;
       this.#nap = from.nap;
@@ -715,7 +765,7 @@ namespace csv {
       this.#preCmdlets = [];
       this.#posCmdlets = [];
       this.#dQuote = '"';
-      this.#enc = "utf-8";
+      this._md = {encoding: "utf-8" as parser.Encoding, fileExt: "csv", isStandard: true, mediaType: "text/csv", standard: "Rfc 4180"};
       this.#bom = false;
       this.#nop = ".";
       this.#nap = "#";
@@ -814,8 +864,11 @@ namespace csv {
      * @readonly
      */
     readonly dQuotes: string;
-    /**The encoding expected in the document. When {@link Syntax.bom} is provided, This value helps to read the bom it properly */
-    readonly encoding: parser.Encoding;
+    /**
+     * Contains the encoding expected in the document. When {@link Syntax.bom} is provided. This value helps to read the bom it properly
+     * @inheritdoc
+     */
+    readonly metadata: parser.Metadata;
     /**
      * Specifies whether the document carries a byte-order-mark
      * @type {boolean}
@@ -996,8 +1049,8 @@ namespace csv {
   export const SEPARATOR: parser.GType<string> = new Type("1", 2);
   /**
    * @constant {parser.GType<string>} EOL the type representing the line terminator (end-of-line) token of the csv document.
-   * It's respective command ({@link RecordCommand}) is going to be registered in the syntax object as an infix (not postfix) command and has a lower precedence than other
-   * infix commands (such as the {@link SeparatorCommand}), hence this token has to have a lower precedence to cause the {@link parser.PrattParser parser} to stop parsing
+   * It's respective command ({@link ParseRow}) is going to be registered in the syntax object as an infix (not postfix) command and has a lower precedence than other
+   * infix commands (such as the {@link ParseSeparator}), hence this token has to have a lower precedence to cause the {@link parser.PrattParser parser} to stop parsing
    * after this token has been parsed.
    * @type {parser.GType<string>}
    * @readonly
@@ -1608,7 +1661,7 @@ namespace csv {
       pa?: Params
     ): Expression;
   }
-  class FieldCommand implements Command {
+  class ParseField implements Command {
     parse(
       ap: Expression,
       yp: Token,
@@ -1644,7 +1697,7 @@ namespace csv {
       return new FieldExpression(yp.value);
     }
   }
-  class SeparatorCommand implements Command {
+  class ParseSeparator implements Command {
     parse(
       ap: Expression,
       yp: Token,
@@ -1661,7 +1714,7 @@ namespace csv {
       );
     }
   }
-  class RecordCommand implements Command {
+  class ParseRow implements Command {
     static #getString(ap: Expression, s: Syntax, p: Params) {
       const str = new StringFormat();
       ap.format(str, s, p);
@@ -1676,7 +1729,7 @@ namespace csv {
       pa?: Params
     ): Expression {
       if (s.enfSym && pa?.fieldCount !== pa?.header?.length) {
-        const affectedRow = RecordCommand.#getString(ap, s, pa!);
+        const affectedRow = ParseRow.#getString(ap, s, pa!);
         const msg = `Misaligned row. row must have exactly ${
           pa?.header?.length
         } field(s) but ${pa?.fieldCount} field(s) was found at row ${
@@ -2129,13 +2182,13 @@ namespace csv {
      * @param {string} [filename=] the name of the file that the internal {@link fs.WriteStream `fs.WriteStream`} will save the data to.
      * The default is `file.csv` in the current directory
      */
-    constructor(filename: string = "./file.csv") {
+    constructor(filename: string) {
       this.bpc = 8; //8 bits per character
       this.bpn = 32; //32 bits floating point
       this.#fs = filename;
     }
-    #writeBOM(ws: fs.WriteStream,s: Syntax) {
-      switch (s.encoding) {
+    #writeBOM(ws: fs.WriteStream, s: Syntax) {
+      switch (s.metadata.encoding) {
         case "utf8":
         case "utf-8":
           ws.write(Buffer.of(239, 187, 191));
@@ -2190,7 +2243,7 @@ namespace csv {
     /**@todo Remember to write the bom */
     append(data: Appendage, s?: Syntax, p?: Params): void {
       if (!utility.isValid(this.#ws)) {
-        this.#enc = s?.encoding;
+        this.#enc = s?.metadata.encoding;
         this.#ws = fs.createWriteStream(this.#fs, this.#enc as BufferEncoding);
         if(!this.#bw && s!.bom) {
           this.#writeBOM(this.#ws, s!);
@@ -2295,7 +2348,7 @@ namespace csv {
     ): void {
       if (!this.writableObjectMode) {
         chunk = Buffer.isBuffer(chunk)
-          ? iconv.decode(chunk as Buffer, this.syntax.encoding)
+          ? iconv.decode(chunk as Buffer, this.syntax.metadata.encoding)
           : String(chunk);
       }
       try {
@@ -2360,12 +2413,14 @@ namespace csv {
    * - Row symmetry is enforced such that all rows must have the same number of fields as the first row (header) in the csv document.
    */
   export const RFC_4180 = new SyntaxBuilder()
-    .addPrefixCommand(FIELD, new FieldCommand())
+    .addPrefixCommand(FIELD, new ParseField())
     // .addPrefixCommand(QUOTE, new QuotedCommand())
-    .addInfixCommand(SEPARATOR, new SeparatorCommand())
-    .addInfixCommand(EOL, new RecordCommand())
-    // .addPostfixCommand(EOL, new RecordCommand())
+    .addInfixCommand(SEPARATOR, new ParseSeparator())
+    .addInfixCommand(EOL, new ParseRow())
+    // .addPostfixCommand(EOL, new ParseRow())
     .build();
+  // export const dsv = new SyntaxBuilder().build();
+  // export const tsv = new SyntaxBuilder().build();
 }
 
 export default csv;

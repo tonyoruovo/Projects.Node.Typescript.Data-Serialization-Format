@@ -1,8 +1,8 @@
-import csv from "../parser/csv.js";
+import csv from "../../parser/csv.js";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream } from "node:fs";
-import json from "../parser/json.js";
+import json from "../../parser/json.js";
 
 const path = resolve(
   fileURLToPath(new URL(".", import.meta.url).toString()),

@@ -9,7 +9,7 @@
 // for (let i = 0; i < j.Sheet1.length; i++) {
 //   console.log(j.Sheet1[i]);
 
-import json from "../parser/json.js";
+import json from "../../parser/json.js";
 import {resolve} from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, ReadStream } from "node:fs";

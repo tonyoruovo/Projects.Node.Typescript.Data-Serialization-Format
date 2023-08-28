@@ -1,6 +1,6 @@
 This is strictly for data serialisation hence, evaluation and compilation are not supported within languages.
 - HOCON
-- Recfiles
+- [Recfiles](https://www.gnu.org/software/recutils/manual/The-Rec-Format.html)
 - CSON
 - XML
 - JSON5

@@ -24,7 +24,7 @@ namespace parser {
    * @param {{data: () => any, append: (input: any, syntax: Syntax, params?: P) => void}} format a formatter of sorts. Please see the docs of the `expression` namespace for more about formatters.
    * @param {Syntax} syntax the syntax that will provide commands for the parsing
    * @param {P} [params] an object that complements the work of the `syntax` parameter. Can be left undefined, however if present, then `format.append` will recieve this object.
-   * @template P a type of an object that may be used during parsing and formatting 
+   * @template P a type of an object that may be used during parsing and formatting to update their states
    * @returns {any} the result of parsing `text`
    */
   export function parseText<P>(text: string, tokenizer: (text: string) => () => Token, format: {data: () => any, append: (input: any, syntax: Syntax, params?: P) => void}, syntax: Syntax, params?: P): any{
@@ -37,6 +37,41 @@ namespace parser {
 
   export type Unicode = "utf-1" | "utf1" | "utf-7" | "utf7" | "utf-8" | "utf8" | "utf-16" | "utf16" | "utf16le" | "utf-16le" |  "utf-32" | "utf32" |  "utf-32le" | "utf32le" | "utf-64" | "utf64" | "utf-128" | "utf128" | "utf-ebcdic" | "utfebcdic";
   export type Encoding = Unicode | "ascii" | "scsu" | "bocu-1" | "bocu1" | "gb18030" | "binary";
+  /**
+   * Represents data info of a given source or syntax
+   */
+  export type Metadata = {
+    /**
+     * The expected encoding in the document to be parsed
+     * @type {Encoding}
+     * @readonly
+     */
+    readonly encoding: Encoding;
+      /**
+       * The file extension of the data, if it has one. This should not have any trailing dot(s)
+       * @type {string}
+       * @readonly
+       */
+      readonly fileExt: string;
+      /**
+       * The MIME type of the data parsed with this syntax.
+       * @type {string}
+       * @readonly
+       */
+      readonly mediaType: string;
+      /**
+       * Checks if the data parsed by this syntax is part of a web standard. Return `true` if it is and `false` otherwise.
+       * @type {string}
+       * @readonly
+       */
+      readonly isStandard: boolean;
+      /**
+       * A url to a resource such as an rfc webpage or a schema
+       * @type {string}
+       * @readonly
+       */
+      readonly standard: string;
+  };
 
   /**
    * Class for throwing an error if the parser or lexer encounters one such
@@ -311,7 +346,7 @@ namespace parser {
       lexer: Lexer,
       syntax: Syntax
     ): exp.Expression;
-}
+  }
   
   /**
    * @summary The generic type of {@link Command}.
@@ -486,7 +521,7 @@ namespace parser {
      * argument(s)
      * @param {S} syntax a data object that contains all the grammar used for checking the syntax
      * @param {P} params a data object that contains values specific to this reading session
-     * @template P the type of params object. A params object is an options object that is specific
+     * @template P the type of params object that represents a mutable visitor that allows a `Lexer` visited to read and update it's state during the call to `next()` so that other methods can gain access to the same saved state(s) thereby creating a global state extrinsically. A params object is an options object that is specific
      * to the current value being parsed.
      * @returns {GT} a generic token after a successful read
      */
@@ -539,14 +574,14 @@ namespace parser {
      * @param {CHUNK} chunk the piece of data to analyse
      * @param {Syntax} syntax the provided syntax for this operation
      * @param {P} params the provided params object for this operation
-     * @template P a mutable visitor that assists in this method
+     * @template P a mutable visitor that assists in this method by allowing this lexer to read and update it's state
      */
     process<P>(chunk: CHUNK, syntax: S, params: P): void;
     /**
      * Finalises this lexer and signals an end to the processing. For some lexers, this will prevent `process`  from ever being called again.
      * @param {Syntax} syntax the provided syntax for this operation
      * @param {P} params the provided params object for this operation
-     * @template P a mutable visitor that assists in this method
+     * @template P a mutable visitor that assists in this method by allowing this lexer to read and update it's state
      */
     end<P>(syntax: S, params: P): void;
     /**
@@ -575,12 +610,6 @@ namespace parser {
    */
   export interface Syntax {
     /**
-     * The expected encoding in the document to be parsed
-     * @type {Encoding}
-     * @readonly
-     */
-    readonly encoding: Encoding;
-    /**
      * Gets the appropriate `Command` that will be used for parsing a
      * specific token into an expression. Care should be taken so that no `Type`
      * should be mapped to the same `Command` and direction. Doing this creates ambiguity and
@@ -600,6 +629,11 @@ namespace parser {
      * of token or returns undefined if the command was not found with the given arguments
      */
     getCommand(direction: Direction, type: Type): Command | undefined;
+    /**
+     * Metadata info associated with the data parsed with this syntax.
+     * @readonly
+     */
+    readonly metadata?: Metadata;
   }
   /**
    * A generic version of the `Syntax`
@@ -615,8 +649,10 @@ namespace parser {
   /**
    * @summary Creates expressions from tokens provided by a lexer.
    * @description
-   * A Parser is an object that queries a lexer for token(s) which it then turns into{@link exp.Expression expression} objects. A Parser is basically an abstract
-   * factory of expressions while the command is the factory of expression.
+   * A Parser is an object that queries a lexer for token(s) which it then turns into {@link exp.Expression `Expression`} objects. A Parser is basically an abstract
+   * factory of expressions while the command is the factory of expression. \
+   * \
+   * A parser is the opposite of a {@link exp.Format formatter} as it creates an internal representation of a data format.
    */
   export interface Parser {
     /**
@@ -630,7 +666,7 @@ namespace parser {
      * {@label Parser.parse}
      */
     parse(lexer: Lexer, syntax: Syntax): exp.Expression;
-}
+  }
   /**
    * A generic form of the `Parser` interface with an additional method overload.
    * @template E the type of the `GExpression` given
@@ -645,17 +681,17 @@ namespace parser {
     /**
      * In addition to consuming, parsing and generating exprssions, this method
      * also feeds a parameter object to the commands.
-     * @param {L} lexer The token generator
+     * @param {L} lexer The token generator a.k.a the `Tokenizer`
      * @param {S} syntax The comand factory
      * @param  {P} params parameter object that contains data for the parse commands
      * @template P the type of params object. A params object is an options object that is specific
-     * to the current value being parsed.
+     * to the current value being parsed. This is also a mutable visitor that allows this parser to read and update it's state during `parse` so that other methods can gain access to the same state thereby creating a global state extrinsically.
      * @returns {E} a specific type of expression created by this parser that is
      * the AST of the values parsed
      * {@label GParser.parse}
      */
     parse<P>(lexer: L, syntax: S, params?: P): E;
-}
+  }
   /**
    * @summary An implementation of the Vaughn Pratt's parser, which parses {@link Token tokens} into an Abstract Syntax Tree (AST).
    * @description
@@ -694,7 +730,7 @@ namespace parser {
      * @param {S} syntax The comand factory
      * @param  {P} params parameter object that contains data for the parse commands
      * @template P the type of params object. A params object is an options object that is specific
-     * to the current value being parsed.
+     * to the current value being parsed. This is also a mutable visitor that allows this parser to read and update it's state during `parse()`, `parseWithPrecedence()`, `consume()`, `match()`, `readAndPop()` and `readAndPeek()`, so that other methods can gain access to the same state thereby creating a global state extrinsically.
      * @returns {E} a specific type of expression created by this parser that is
      * the AST of the values parsed
      */
