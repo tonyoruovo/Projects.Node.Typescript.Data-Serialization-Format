@@ -296,20 +296,20 @@ namespace csv {
      * @defaultValue `#`
      */
     #nap?: string = "#";
-    /**the infix array that hold a 2-length tuple of `Type` and `Command`
+    /**the infix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
      * the default is `[]`
      * @defaultValue `[]`*/
-    #infCmdlets: [Type, Command][] = [];
-    /**the prefix array that hold a 2-length tuple of `Type` and `Command`
+    #infCmdlets: [parser.GType<string>, Command][] = [];
+    /**the prefix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
      * the default is `[]`
      * @defaultValue `[]`*/
-    #preCmdlets: [Type, Command][] = [];
-    /**the postfix array that hold a 2-length tuple of `Type` and `Command`
+    #preCmdlets: [parser.GType<string>, Command][] = [];
+    /**the postfix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
      * the default is `[]`
      * @defaultValue `[]`*/
-    #posCmdlets: [Type, Command][] = [];
+    #posCmdlets: [parser.GType<string>, Command][] = [];
     /**A function for getting the correct command based on the direction */
-    #getCmd = (d: parser.Direction, type: Type): Command | undefined => {
+    #getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
       switch (d) {
         case parser.Direction.PREFIX:
         default: {
@@ -333,11 +333,11 @@ namespace csv {
     /**determines json data type of a cell. default returns the argument */
     #p = (s: string) => s.length > 0 ? s as json.Value : null;
     //May be added in later versions
-    // public addValidType(type: Type): SyntaxBuilder {
+    // public addValidType(type: parser.GType<string>): SyntaxBuilder {
     //     this.#validTypes.push(type);
     //     return this;
     // }
-    #pushOrOverite(map: [Type, Command][], t: Type, cmd: Command){
+    #pushOrOverite(map: [parser.GType<string>, Command][], t: parser.GType<string>, cmd: Command){
       for (let i = 0; i < map.length; i++)
         if(map[i][0].equals(t)) {
           map[i] = [t, cmd];
@@ -353,18 +353,18 @@ namespace csv {
     /**
      * @summary registers an infix {@link Command}
      * @description
-     * Registers a {@link Type} (which is compatible with infix tokens) with the corresponding {@link Command} that can parse that `Type`.
-     * This method should not be called more than once for the same `Type` as that would cause ambiguity on the built {@link Syntax `Syntax`}
-     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `Type` invalidates
-     * the previous call with that `Type`.
+     * Registers a {@link parser.GType<string>} (which is compatible with infix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+     * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+     * the previous call with that `parser.GType<string>`.
      * @remark
      * There are no defaults for infix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
      * infix `Command`s
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible infix type.
+     * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible infix type.
      * @param {Command} cmd the command which can parse infix tokens into {@link Expression expression(s)}
      * @returns {SyntaxBuilder} the same builder object for method chaining
      */
-    public addInfixCommand(type: Type, cmd: Command): SyntaxBuilder {
+    public addInfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
       // this.#infCmdlets.push([type, cmd]);
       this.#pushOrOverite(this.#infCmdlets, type, cmd);
       return this;
@@ -372,18 +372,18 @@ namespace csv {
     /**
      * @summary registers a prefix {@link Command}
      * @description
-     * Registers a {@link Type} (which is compatible with prefix tokens) with the corresponding {@link Command} that can parse that `Type`.
-     * This method should not be called more than once for the same `Type` as that would cause ambiguity on the built {@link Syntax `Syntax`}
-     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `Type` invalidates
-     * the previous call with that `Type`.
+     * Registers a {@link parser.GType<string>} (which is compatible with prefix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+     * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+     * the previous call with that `parser.GType<string>`.
      * @remark
      * There are no defaults for prefix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
      * prefix `Command`s
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible prefix type.
+     * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible prefix type.
      * @param {Command} cmd the command which can parse prefix tokens into {@link Expression expression(s)}
      * @returns {SyntaxBuilder} the same builder object for method chaining
      */
-    public addPrefixCommand(type: Type, cmd: Command): SyntaxBuilder {
+    public addPrefixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
       // this.#preCmdlets.push([type, cmd]);
       this.#pushOrOverite(this.#preCmdlets, type, cmd);
       return this;
@@ -391,21 +391,21 @@ namespace csv {
     /**
      * @summary registers a postfix {@link Command}
      * @description
-     * Registers a {@link Type} (which is compatible with postfix tokens) with the corresponding {@link Command} that can parse that `Type`.
-     * This method should not be called more than once for the same `Type` as that would cause ambiguity on the built {@link Syntax `Syntax`}
-     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `Type` invalidates
-     * the previous call with that `Type`.
+     * Registers a {@link parser.GType<string>} (which is compatible with postfix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+     * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+     * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+     * the previous call with that `parser.GType<string>`.
      * @remark
      * Calling this method has no effect on the built `Syntax` as {@link Parser} does not support {@link parser.Direction.POSTFIX} therefore ignore this
      * method. \
      * \
      * There are no defaults for postfix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
      * postfix `Command`s
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible postfix type.
+     * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible postfix type.
      * @param {Command} cmd the command which can parse postfix tokens into {@link Expression expression(s)}
      * @returns {SyntaxBuilder} the same builder object for method chaining
      */
-    public addPostfixCommand(type: Type, cmd: Command): SyntaxBuilder {
+    public addPostfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
       // this.#posCmdlets.push([type, cmd]);
       this.#pushOrOverite(this.#posCmdlets, type, cmd);
       return this;
@@ -720,7 +720,7 @@ namespace csv {
       this.#nop = ".";
       this.#nap = "#";
       this.#p = (s: string) => s.length > 0 ? s as json.Value : null;
-      this.#getCmd = (d: parser.Direction, type: Type): Command | undefined => {
+      this.#getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
         switch (d) {
           case parser.Direction.PREFIX:
           default: {
@@ -958,7 +958,7 @@ namespace csv {
       return this.#header;
     }
   }
-  /**A concrete {@link parser.Type} that uses string types as ids */
+  /**A concrete {@link parser.GType<string>} that uses string types as ids */
   class Type implements parser.GType<string> {
     /**
      * Constructs a `Type` with an assigned unique id and precedence.
@@ -1062,7 +1062,7 @@ namespace csv {
     #col;
     #row;
     #h;
-    public readonly src = undefined;
+    #src!: json.Value;
     constructor() {
       this.#queue = new Array<Token>();
       // this.#tmpdir = join(tmpdir(), randomUUID());
@@ -1088,7 +1088,7 @@ namespace csv {
       col: number;
       from?: string;
     }): void {
-      if (this.#isAtomic(chunk)) {
+      if (json.isAtomic(chunk)) {
         // atomic row
         // if (!utility.isValid(row))
         //   return this.#extractHeaders({ chunk, s, doc, h, row: 0, col, from });
@@ -1109,7 +1109,7 @@ namespace csv {
       } else if (Array.isArray(chunk)) {
         for (let i = 0; i < chunk.length; i++) {
           if (!from &&
-            !this.#isAtomic(chunk[i]) &&
+            !json.isAtomic(chunk[i]) &&
             typeof chunk[i] === "object") this.#extractHeaders({ chunk: chunk[i], s, doc, h, row: i, col });
             else if (s.nap){
             // console.log({chunk, doc, h, row, col, from});
@@ -1195,7 +1195,7 @@ namespace csv {
         return this.#applyHeaders(value, s, p, store);
       } else if (Array.isArray(tree)) {
         if (tree.length === 0) {
-          if (this.#isAtomic(value)) return this.process(value ?? null, s, p);
+          if (json.isAtomic(value)) return this.process(value ?? null, s, p);
           else return this.process(JSON.stringify(value ?? null), s, p);
         }
         let child: string | number = fixFieldName(tree.shift()!, s);
@@ -1209,10 +1209,12 @@ namespace csv {
       }
       throw new Error("Unrecognised value");
     }
-    #isAtomic(data: any) {
-      return (
-        data === null || (typeof data !== "object" && !Array.isArray(data))
-      );
+    /**
+     * This value is different before and after the initial call of {@link JSONLexer.process `process`}.
+     * @inheritdoc
+     */
+    public get src() {
+      return (!json.isAtomic) ? Object.freeze(this.#src) : this.#src;
     }
     end(): void {}
     process(chunk: json.Value, syntax: Syntax, p: Params): void {
@@ -1382,6 +1384,7 @@ namespace csv {
           }
         }
       }
+      this.#src = chunk;
     }
     #manufacture(token: Token) {
       this.#queue.push(token);
