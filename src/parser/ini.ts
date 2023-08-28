@@ -58,9 +58,6 @@ namespace ini {
     function skipBlankLines(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): void {
         while(p.match(EOL, l, s, pa)) p.consume(EOL, l, s, pa);
     }
-    function hasIdentifier(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): boolean {
-        return p.match(TEXT, l, s, pa) || p.match(D_QUOTE, l, s, pa) || p.match(QUOTE, l, s, pa);
-    }
     function parseComment(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): string[] {
         const comments = Array<string>();
         while (true) {
@@ -94,7 +91,349 @@ namespace ini {
         }
         return text;
     }
-    export class SyntaxBuilder implements utility.Builder<Syntax> {}
+    export class SyntaxBuilder implements utility.Builder<Syntax> {
+        private _com?: {retain: boolean, chars: string[], inline: boolean} = {retain: true, chars: [';', "#"], inline: true};
+        private _del: string[] = [':', '='];
+        private _nes: {chars: string[], relative: boolean} = {chars: ['.', '/'], relative: true};
+        private _glo: string = "";
+        private _esc?: {quoted: boolean, unicode: string[], char: string, parse(e: string): string}
+            = {
+                char: "\\",
+                quoted: true,
+                unicode: ['x', 'u'],
+                parse(e: string) {
+                    let esc = e[1];
+                    switch(e){
+                        case "\\":break;
+                        case "'":break;
+                        case "\"":break;
+                        case ";":break;
+                        case "#":break;
+                        case "=":break;
+                        case ".":break;
+                        case "/":break;
+                        case "\n":
+                        case "n": return e.length === 2 ? esc : e;
+                        case "x":
+                        case "u":{
+                            const code = e.substring(2);
+                            if(code.length > 4 || !(/^[A-Fa-f-0-9]$/.test(code))) return e;
+                            return String.fromCodePoint(Number.parseInt(code));
+                        }
+                        case "0":
+                        case "a":
+                        case "b":
+                        case "t":
+                        case "r":
+                        default:
+                    }
+                    return e;
+                }
+            };
+        private _p: (v: string) => json.Value = (v: string) => v.length > 0 ? v : null;
+        /**the infix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
+         * the default is `[]`
+         * @defaultValue `[]`*/
+        private _infCmdlets: [parser.GType<string>, Command][] = [];
+        /**the prefix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
+         * the default is `[]`
+         * @defaultValue `[]`*/
+        private _preCmdlets: [parser.GType<string>, Command][] = [];
+        /**the postfix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
+         * the default is `[]`
+         * @defaultValue `[]`*/
+        private _posCmdlets: [parser.GType<string>, Command][] = [];
+        /**A function for getting the correct command based on the direction */
+        private _getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
+            switch (d) {
+            case parser.Direction.PREFIX:
+            default: {
+                const x = this._preCmdlets.filter((x) => x[0].equals(type))[0];
+                return x ? x[1] : undefined;
+            }
+            case parser.Direction.INFIX: {
+                const x = this._infCmdlets.filter((x) => x[0].equals(type))[0];
+                return x ? x[1] : undefined;
+            }
+            case parser.Direction.POSTFIX:
+                const x = this._posCmdlets.filter((x) => x[0].equals(type))[0];
+                return x ? x[1] : undefined;
+            }
+        };
+        private _ensureUniqueness(s: string, truthy?: any) {
+            if(utility.isValid(s)) throw Error("undefined cannot be used");
+            if(truthy && s.length > 1) throw Error("Only a single character is required");
+            if(utility.isValid(this._com) && this._com!.chars.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is used as a comment`); 
+            if(this._del.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is used as a delimeter`); 
+            if(this._nes.chars.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is used as a nesting operator`); 
+            if(this._glo === s)
+            throw new Error(`${s} is not unique. It is used as the keyword for the global section name`); 
+            if(utility.isValid(this._esc) && this._esc!.unicode.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is used as a unicode prefix`); 
+            if(utility.isValid(this._esc) && this._esc!.char === s)
+            throw new Error(`${s} is not unique. It is used as the escape character`); 
+        }
+        constructor(){
+            this.addPrefixCommand(COMMENT, new ParseComment(parser.Direction.PREFIX));
+            this.addPrefixCommand(EOL, new EndLine());
+            this.addPrefixCommand(ASSIGNMENT, new Assign(parser.Direction.PREFIX));
+            this.addPrefixCommand(TEXT, new ParseText());
+            this.addPrefixCommand(SECTION_START, new ParseSection());
+            this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));
+            this.addInfixCommand(ASSIGNMENT, new Assign(parser.Direction.INFIX));
+            this.addInfixCommand(EOL, new EndLine());
+        }
+        public resetComments() : SyntaxBuilder{
+            this._com = undefined;
+            return this;
+        }
+        public resetEscape() : SyntaxBuilder{
+            this._esc = undefined;
+            return this;
+        }
+        public removeCommentChar(char: string) : SyntaxBuilder{
+            try {
+                // this._com!.chars = this._com!.chars.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
+                let ind = -1;
+                for (let i = 0; i < this._com!.chars.length; i++) {
+                    if(this._com!.chars[i] === char) {ind = i; break;}
+                }
+                if(ind >= 0) this._com?.chars.splice(ind, 1);
+            }catch(e) {}
+            return this;
+        }
+        public removeDelimiter(delim: string) : SyntaxBuilder{
+            // this._del = this._del.reduce((p, c) => c === delim ? p : [...p, c], Array<string>());
+            let ind = -1;
+            for (let i = 0; i < this._del.length; i++) {
+                if(this._del[i] === delim) {ind = i; break;}
+            }
+            if(ind >= 0) this._del.splice(ind, 1);
+            return this;
+        }
+        public removeNestingChar(char: string) : SyntaxBuilder{
+            // this._nes.chars = this._nes.chars.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
+            let ind = -1;
+            for (let i = 0; i < this._nes.chars.length; i++) {
+                if(this._nes.chars[i] === char) {ind = i; break;}
+            }
+            if(ind >= 0) this._nes.chars.splice(ind, 1);
+            return this;
+        }
+        public removeUnicodeChar(char: string) : SyntaxBuilder{
+            try {
+                // this._esc!.unicode = this._esc!.unicode.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
+                let ind = -1;
+                for (let i = 0; i < this._esc!.unicode.length; i++) {
+                    if(this._esc!.unicode[i] === char) {ind = i; break;}
+                }
+                if(ind >= 0) this._esc!.unicode.splice(ind, 1);
+            }catch(e) {}
+            return this;
+        }
+        public addCommentChar(char: string): SyntaxBuilder{
+            this._ensureUniqueness(char, true);
+            try {
+                this._com?.chars.push(char);
+            } catch (e) {}
+            return this;
+        }
+        public addDelimiter(delim: string): SyntaxBuilder{
+            this._ensureUniqueness(delim, true);
+            this._del.push(delim);
+            return this;
+        }
+        public addNestingChar(char: string): SyntaxBuilder{
+            this._ensureUniqueness(char, true);
+            this._nes.chars.push(char);
+            return this;
+        }
+        public addUnicodeChar(char: string): SyntaxBuilder{
+            this._ensureUniqueness(char, true);
+            try {
+                this._esc?.unicode.push(char);
+            } catch (e) {}
+            return this;
+        }
+        public retainComments(b: boolean) : SyntaxBuilder{
+            try {
+                this._com!.retain = b;
+            } catch(e: any) {
+                throw new Error("Comment object is undefined for this builder", e);
+            }
+            return this;
+        }
+        public supportInline(b: boolean) : SyntaxBuilder{
+            try {
+                this._com!.inline = b;
+            } catch(e: any) {
+                throw new Error("Comment object is undefined for this builder", e);
+            }
+            return this;
+        }
+        public supportRelativeNesting(b: boolean) : SyntaxBuilder{
+            this._nes.relative = b;
+            return this;
+        }
+        public setGlobalName(g: string) : SyntaxBuilder{
+            this._ensureUniqueness(g);
+            this._glo = g;
+            return this;
+        }
+        public supportQuotedText(b: boolean) : SyntaxBuilder{
+            try {
+                this._esc!.quoted = b;
+            } catch(e: any) {
+                throw new Error("Escape object is undefined for this builder", e);
+            }
+            return this;
+        }
+        public setEscapeChar(char: string) : SyntaxBuilder{
+            this._ensureUniqueness(char, true);
+            try {
+                this._esc!.char = char;
+            } catch(e: any) {
+                throw new Error("Escape object is undefined for this builder", e);
+            }
+            return this;
+        }
+        public setEscapeParser(p: (e: string) => string) : SyntaxBuilder{
+            this._esc!.parse = p??this._esc!.parse;
+            return this;
+        }
+        public setFormatParser(p: (v: string) => json.Value) : SyntaxBuilder{
+            this._p = p??this._p;
+            return this;
+        }
+        private _pushOrOverite(map: [parser.GType<string>, Command][], t: parser.GType<string>, cmd: Command){
+          for (let i = 0; i < map.length; i++)
+            if(map[i][0].equals(t)) {
+              map[i] = [t, cmd];
+              return;
+            }
+          map.push([t, cmd]);
+        }
+        public addInfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
+            // this._infCmdlets.push([type, cmd]);
+            this._pushOrOverite(this._infCmdlets, type, cmd);
+            return this;
+        }
+        public removeInfixCommand(type: parser.GType<string>): SyntaxBuilder {
+            this._infCmdlets = this._infCmdlets.filter(v => !v[0].equals(type));
+            return this;
+        }
+        public addPrefixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
+            // this._infCmdlets.push([type, cmd]);
+            this._pushOrOverite(this._preCmdlets, type, cmd);
+            return this;
+        }
+        public removePrefixCommand(type: parser.GType<string>): SyntaxBuilder {
+            this._preCmdlets = this._preCmdlets.filter(v => !v[0].equals(type));
+            return this;
+        }
+        public addPostfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
+            // this._infCmdlets.push([type, cmd]);
+            this._pushOrOverite(this._posCmdlets, type, cmd);
+            return this;
+        }
+        public removePostfixCommand(type: parser.GType<string>): SyntaxBuilder {
+            this._posCmdlets = this._posCmdlets.filter(v => !v[0].equals(type));
+            return this;
+        }
+        public clear(toDefault = false): SyntaxBuilder {
+            this._glo = "";
+            this._getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
+                switch (d) {
+                case parser.Direction.PREFIX:
+                default: {
+                    const x = this._preCmdlets.filter((x) => x[0].equals(type))[0];
+                    return x ? x[1] : undefined;
+                }
+                case parser.Direction.INFIX: {
+                    const x = this._infCmdlets.filter((x) => x[0].equals(type))[0];
+                    return x ? x[1] : undefined;
+                }
+                case parser.Direction.POSTFIX:
+                    const x = this._posCmdlets.filter((x) => x[0].equals(type))[0];
+                    return x ? x[1] : undefined;
+                }
+            };
+            if(toDefault) {
+                this._com = {retain: true, chars: [';', "#"], inline: true};
+                this._del = [':', '='];
+                this._nes = {chars: ['.', '/'], relative: true};
+                this._esc = {
+                    char: "\\",
+                    quoted: true,
+                    unicode: ['x', 'u'],
+                    parse(e: string) {
+                        let esc = e[1];
+                        switch(e){
+                            case "\\":break;
+                            case "'":break;
+                            case "\"":break;
+                            case ";":break;
+                            case "#":break;
+                            case "=":break;
+                            case ".":break;
+                            case "/":break;
+                            case "\n":
+                            case "n": return e.length === 2 ? esc : e;
+                            case "x":
+                            case "u":{
+                                const code = e.substring(2);
+                                if(code.length > 4 || !(/^[A-Fa-f-0-9]$/.test(code))) return e;
+                                return String.fromCodePoint(Number.parseInt(code));
+                            }
+                            case "0":
+                            case "a":
+                            case "b":
+                            case "t":
+                            case "r":
+                            default:
+                        }
+                        return e;
+                    }
+                };
+                this._p = (v: string) => v.length > 0 ? v : null;
+            } else {
+                this._del = [];
+                this._com = undefined;
+                this._nes = {chars: [], relative: false};
+                this._esc = undefined;
+                this._p = (v: string) => v;
+            }
+            return this;
+        }
+        public build(): Syntax {
+            return {
+                comments: {
+                    ...this._com!,
+                    chars: Object.freeze(this._com!.chars)
+                },
+                delimiters: Object.freeze(this._del),
+                nesting: {...this._nes, chars: Object.freeze(this._nes.chars)},
+                globalName: this._glo,
+                escape: {...this._esc!, unicode: Object.freeze(this._esc!.unicode)},
+                parse: this._p,
+                encoding: "utf-8" as parser.Encoding,
+                getCommand: this._getCmd
+            };
+        }
+        public rebuild(from: Syntax): SyntaxBuilder {
+            this._com = from.comments as typeof this._com;
+            this._esc = from.escape as typeof this._esc;
+            this._nes = from.nesting as typeof this._nes;
+            this._del = from.delimiters as typeof this._del;
+            this._glo = from.globalName;
+            this._p = from.parse;
+            this._getCmd = from.getCommand;
+            return this;
+        }
+    }
     /**
      * Duplicate properties merge values and duplicate sections merge their properties
      */
@@ -113,7 +452,7 @@ namespace ini {
              * The single characters that starts an inline comment. For example [pacman.conf](https://archlinux.org/pacman/pacman.conf.5.html) uses the `'#'` character, windows uses the `';'` character
              * and [apache commons configuration api](https://commons.apache.org/proper/commons-configuration/apidocs/org/apache/commons/configuration2/INIConfiguration.html) supports both
              */
-            readonly chars: string[]
+            readonly chars: readonly string[]
             /**
              * Enables support for inline comments where a comment may exit on any line. A `false` value ensures that all comments are the only tokens on a line. For example:
              * a `true` value enables parsing of:
@@ -152,7 +491,7 @@ namespace ini {
          * ```
          * is a valid syntax
          */
-        readonly delimiters: string[];
+        readonly delimiters: readonly string[];
         /**If this is `null` or `undefined`, nesting is not considered, else if it is in a quoted string, then it must be escaped or an error is thrown */
         readonly nesting?: {
             /**
@@ -160,7 +499,7 @@ namespace ini {
              * @type {string[]}
              * @readonly
              */
-            readonly chars: string[],
+            readonly chars: readonly string[],
             /**
              * Allows for a syntax that uses nesting chars at the start of a section name e.g `[.section]`. A `false`value will parse `[.section]` as a single
              * section name disregarding the "parent" section and will only assign a section as a child of another if it is written as `'[section.subsection]'`.
@@ -174,14 +513,15 @@ namespace ini {
          * @readonly
          */
         readonly globalName: string;
-        /**
-         * Allows quoted values to be used to escape whitespaces and special characters
-         * @type {boolean}
-         * @readonly
-         */
-        readonly quoted: boolean;
         /**An object that specifies how escaped sequences are parsed. If `undefined` or `null`, then no escape will be supported */
         readonly escape?: {
+            /**
+             * Allows quoted values to be used to escape whitespaces and special characters. A single or double quotes can be used but a quoted text must be
+             * enclosed with the same quote type i.e single quoted text can only strt with single quote and end with single quote, the same for double quote.
+             * @type {boolean}
+             * @readonly
+             */
+            readonly quoted: boolean;
             /**
              * The characters, when placed after an {@link Syntax.escape.char escape character} tells the parser that a unicode hex literal follows.
              * The standard values includes `'u'` and `'x'` such that `'\u20'` and `'\x20'` are equal. This enables the ini parser to be compatible
@@ -189,7 +529,7 @@ namespace ini {
              * @type {string}
              * @readonly
              */
-            readonly unicode: string[],
+            readonly unicode: readonly string[],
             /**
              * The single character `string` used for escaping special and escapable characters. A list of escapable characters include:
              * |Character|Standard escaped meaning|Standard unescaped meaning|
@@ -311,41 +651,212 @@ namespace ini {
     export interface MutableLexer<CH = string> extends parser.MutableLexer<Token, Syntax, CH> {
       end(syntax: Syntax, p: Params | any): void;
       process(chunk: CH, syntax: Syntax, p: Params | any): void;
-    //   readonly bytes?: number;
     }
-    export class JSONLexer implements MutableLexer<json.Value>{
-        end(syntax: Syntax, p: any): void {
-            throw new Error("Method not implemented.");
+    /**
+     * - `{}` *maps to* a section with property names that are strings
+     * - `[]` *maps to* a section with properties names that are numbers
+     * - `null` *maps to* a property name (key) that is an empty string
+     * - `'a string'` *maps to* a property name (key) that is a string with the value `'a string'`
+     * - `true` *maps to* a property name (key) that is a string with the value `true`
+     * - `false` *maps to* a property name (key) that is a string with the value `false`
+     * - `-3.4` *maps to* a property name (key) that is a string with the value `-3.4` \
+     * 
+     * Remember to adjust ParseText to retain leading and trailing whitespaces in a quoted text
+     */
+    export class JSONLexer implements MutableLexer<json.Value> {
+        private _queue;
+        private _i = 0;
+        constructor(){
+            this._queue = Array<Token>();
         }
+        private _processEscapables(text: string, s: Syntax): string {
+            if(!utility.isValid(s.escape)) return text;
+            let val = "";
+            let isQuotable = false;
+            for (let i = 0; i < text.length; i++) {
+                const escaped = s.escape!.parse(`${s.escape!.char}${text[i]}`);
+                if(escaped.length > 1 && escaped[0] === s.escape!.char) val += escaped.substring(1);
+                else if(s.escape!.quoted) {val += escaped; isQuotable = true; }
+                else throw new parser.ParseError(`Cannot have escapable characters in an unquoted text at: ${this._i}`);
+            }
+            return isQuotable ? `"${val}"` : val;
+        }
+        private _process(o: json.Value, s: Syntax, name = Array<Token>()) {
+            if(json.isAtomic(o)) {
+                if(name.length > 0) {
+                    do {
+                        this.#manufacture(name.shift()!, s.globalName);
+                    } while(name.length > 0);
+                    this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++), s.globalName);
+                    this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                }
+                this.#manufacture(new Token(this._processEscapables(o !== null ? String(o) : "", s), TEXT, 0, 0, this._i++), s.globalName);
+            } else if(Array.isArray(o)) {
+                for (let i = 0; i < o.length; i++) {
+                    if(json.isAtomic(o[i])) {
+                        if(name.length > 0) {
+                            do {
+                                this.#manufacture(name.shift()!, s.globalName);
+                            } while(name.length > 0);
+                            this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                        this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(this._processEscapables(String(o[i]??""), s), ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                    } else if(Array.isArray(o[i])) {
+                        let array = o[i] as any[];
+                        if(json.arrayIsAtomic(array)) for(let j = 0; j < array.length; j++) {
+                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(String(array[j]??""), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        } else if(utility.isValid(s.nesting)) {
+                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
+                            this._process(o[i], s, name);
+                        } else {
+                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                    } else if(typeof o[i] === "object") {
+                        if(utility.isValid(s.nesting)) {
+                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
+                            this._process(o[i], s, name);
+                        } else {
+                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                    }
+                }
+            } else if(typeof o === "object") {
+                for (const key in o) {
+                    if(json.isAtomic(o[key])) {
+                        if(name.length > 0) {
+                            do {
+                                this.#manufacture(name.shift()!, s.globalName);
+                            } while(name.length > 0);
+                            this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                        this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(this._processEscapables(String(o[key]??""), s), ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                    } else if(Array.isArray(o[key])) {
+                        if(json.arrayIsAtomic(o[key] as any[])) for(let j = 0; j < (o[key] as any[]).length; j++) {
+                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(String((o[key] as any[])[j]??""), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        } else if(utility.isValid(s.nesting)) {
+                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
+                            this._process((o[key] as any[]), s, name);
+                        } else {
+                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                    } else if(typeof o[key] === "object") {
+                        if(utility.isValid(s.nesting)) {
+                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
+                            this._process(o[key], s, name);
+                        } else {
+                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), TEXT, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
+                        }
+                    }
+                }
+            }
+        }
+        #manufacture(t: Token, g: string) {
+            if(!this.canProcess()){
+                this._queue.push(t);
+            } else {//writes a global section as a metadata
+                this._queue.push(new Token("[", SECTION_START, -1, -1, 0));
+                this._queue.push(new Token(g, TEXT, -1, -1, 1));
+                this._queue.push(new Token("]", SECTION_END, -1, -1, g.length));
+            }
+        }
+        end(): void {}
+        /**
+         * Calling this method when {@link JSONLexer.canProcess `canProcess`} returns `false` puts this `JSONLexer` object in an undefined state.
+         * @inheritdoc
+         */
         process(chunk: json.Value, syntax: Syntax, p: any): void {
-            throw new Error("Method not implemented.");
+            if(chunk === null) this.#manufacture(new Token("", TEXT, 0, 0, this._i++), syntax.globalName);
+            else if(typeof chunk === "boolean") this.#manufacture(new Token(chunk ? "true" : "false", TEXT, 0, 0, this._i++), syntax.globalName);
+            else if(typeof chunk === "number") this.#manufacture(new Token(String(chunk), TEXT, 0, 0, this._i++), syntax.globalName);
+            else if(typeof chunk === "string") this.#manufacture(new Token(chunk, TEXT, 0, 0, this._i++), syntax.globalName);
+            else if(typeof chunk === "object") {
+                const array = Array<Token>();
+                this._process(chunk, syntax, array);
+                if(array.length > 0) do {
+                    this.#manufacture(array.shift()!, syntax.globalName);
+                } while (array.length > 0);
+            }
+            this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), syntax.globalName);
+            this.src = chunk;
         }
-        processed: () => Token[];
+        processed = () => this._queue;
         unprocessed = () => this.src;
         frequency(type: parser.Type): number {
-            throw new Error("Method not implemented.");
+            let frqy = 0;
+            for (let i = 0; i < this._queue.length; i++) {
+              if (this._queue[i].type.equals(type)) frqy++;
+            }
+            return frqy;
         }
         indexOf(type: parser.Type): number {
-            throw new Error("Method not implemented.");
+            for (let i = 0; i < this._queue.length; i++) {
+              if (this._queue[i].type.equals(type)) return i;
+            }
+            return -1;
         }
-        lastIndexOf(type: parser.Type): number {
-            throw new Error("Method not implemented.");
+        public lastIndexOf(type: parser.Type) {
+          for (let i = this._queue.length - 1; i >= 0; i--) {
+            if (this._queue[i].type.equals(type)) return i;
+          }
+          return -1;
         }
         hasTokens(): boolean {
-            throw new Error("Method not implemented.");
+          return this._queue.length > 0;
         }
         canProcess(): boolean {
-            throw new Error("Method not implemented.");
+            return !utility.isValid(this.src)
         }
-        next<P>(syntax?: Syntax | undefined, params?: P | undefined): Token {
-            throw new Error("Method not implemented.");
+        next(): Token {
+          while (true) {
+            if (!this.hasTokens()) break;
+            return this._queue!.shift()!;
+          }
+          return new Token("", EOF, this.line(), this.line(), this.position());
         }
-        src?: any;
+        /**
+         * Will be `undefined` if `process` is yet to be called
+         * @inheritdoc
+         */
+        public src?: json.Value;
         position(): number {
-            throw new Error("Method not implemented.");
+          return this._i;
         }
-        line(): number {
-            throw new Error("Method not implemented.");
+        line(): 0 {
+          return 0;
         }
     }
     /**Since this is a line oriented data-serialisation-format, strings are tokenised by lines and not individually */
@@ -382,12 +893,13 @@ namespace ini {
             return rv;
         }
         #manufacture(t: Token, g: string) {
-            if(this.#isStart()){//writes a global section as a metadata
+            if(!this.#isStart()){
+                this.#queue.push(t);
+            } else {//writes a global section as a metadata
                 this.#queue.push(new Token("[", SECTION_START, -1, -1, 0));
                 this.#queue.push(new Token(g, TEXT, -1, -1, 1));
                 this.#queue.push(new Token("]", SECTION_END, -1, -1, g.length));
             }
-            this.#queue.push(t);
         }
         end(syntax: Syntax, params: Params): void {
             if(this.canProcess()) this.process("", syntax, params);
@@ -469,7 +981,7 @@ namespace ini {
                     this.#manufacture(new Token(token, SECTION_END, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
                     this.#escText = "";
                     this.#esc = 0;
-                } else if(token === "'" && syntax.quoted) {
+                } else if(token === "'" && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
                     if(this.#text.length > 0) {
                         this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
                         this.#text = "";
@@ -478,7 +990,7 @@ namespace ini {
                     this.#qt = !this.#qt;
                     this.#escText = "";
                     this.#esc = 0;
-                } else if(token === '"' && syntax.quoted) {
+                } else if(token === '"'  && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
                     if(this.#text.length > 0) {
                         this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
                         this.#text = "";
@@ -971,33 +1483,36 @@ namespace ini {
                 if (data.map[key] instanceof Section){
                     rv[key] = {};
                     this._append(data.map[key] as Section, rv, s, p);
-                }
-                else if (data.map[key] instanceof Property){
-                    rv[key] = Array<string>();
-                    for (let i = 0; i < (data.map[key] as Property).values.length; i++) {
-                        // this.append((data.map[key] as Property).values[i], s, p);
-                        rv[key].push((data.map[key] as Property).values[i].value);
+                } else if (data.map[key] instanceof Property) {
+                    const prop = data.map[key] as Property;
+                    if(prop.values.length < 2) {
+                        rv[key] = prop.values.length === 0 ? null : s?.parse(prop.values[0].value);
+                    } else {
+                        rv[key] = Array<string>();
+                        for (let i = 0; i < prop.values.length; i++) {
+                            rv[key].push(s?.parse(prop.values[i].value));
+                        }
                     }
                 } else throw new expression.ExpressionError(`Illegal value found at ${key}`);
             }
         }
         append(data: Appendage, s?: Syntax | undefined, p?: Params | undefined): void {
-            if(typeof data === "string"){
+            /*if(typeof data === "string"){
                 this._data[data] = null;
                 this.modifications++;
             } else if(data instanceof KeyValue) {
-                if(!utility.isValid(this._data[data.key])) this._data[data.key] = Array<string>();
-                (this._data[data.key] as string[]).push(data.value);
+                if(!utility.isValid(this._data[data.key])) this._data[data.key] = Array<any>();
+                (this._data[data.key] as any[]).push(s!.parse(data.value));
             } else if(data instanceof Property){
                 for (let i = 0; i < data.values.length; i++) {
                     this.append(data.values[i], s, p);
                 }
-            } else if(data instanceof Section){
-                append(this, data, s, p);
-            } else if(data instanceof Text) {
+            } else */if(data instanceof Section){
+                this._append(data, this._data, s, p);
+            }/* else if(data instanceof Text) {
                 this._data[data.text] = null;
                 this.modifications++;
-            } else throw new expression.FormatError("format not supported");
+            } */else throw new expression.FormatError("format not supported");
         }
         data(): json.Pair {
             return this._data;
@@ -1013,7 +1528,7 @@ namespace ini {
         readonly bpc: number = 8;
         readonly bpn: number = 32;
         hashCode32(): number {
-            return utility.hashCode32(false, utility.asHashable(this.modifications), utility.asHashable(this.bpc), utility.asHashable(this.bpn), utility.asHashable(this._value));
+            return utility.hashCode32(false, utility.asHashable(this.modifications), utility.asHashable(this.bpc), utility.asHashable(this.bpn), utility.asHashable(this._data));
         }
         toJSON(): string {
             return JSON.stringify(this);
@@ -1105,13 +1620,14 @@ namespace ini {
           this.lexer.end(this.syntax, this.params);
           if (this.lexer.hasTokens()) {
             try {
-              this.push(this.parser.parse(this.lexer, this.syntax, this.params));
-              return callback();
+              return callback(null, this.parser.parse(this.lexer, this.syntax, this.params));
             } catch (e) {
               return callback(e as Error);
             }
           }
         }
     }
+
+    // export const WINDOWS
 }
 export default ini;
