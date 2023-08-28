@@ -1054,6 +1054,7 @@ namespace csv {
     process(chunk: CH, syntax: Syntax, p: Params | any): void;
     // processed(): readonly parser.GToken<string>[];
   }
+  /**This is the direct opposite of {@link JSFormat `JSFormat`} */
   export class JSONLexer implements MutableLexer<json.Value> {
     #queue;
     // #tmpdir;//used for incedibly large json
@@ -2120,7 +2121,12 @@ namespace csv {
   }
   /**A csv format that writes to a file */
   export class FileFormat implements Format<fs.ReadStream> {
-    constructor(filename: string) {
+    /**
+     * Constructs this `FileFormat` object
+     * @param {string} [filename=] the name of the file that the internal {@link fs.WriteStream `fs.WriteStream`} will save the data to.
+     * The default is `file.csv` in the current directory
+     */
+    constructor(filename: string = "./file.csv") {
       this.bpc = 8; //8 bits per character
       this.bpn = 32; //32 bits floating point
       this.#fs = filename;
@@ -2220,7 +2226,7 @@ namespace csv {
     get columns() {
       return this.#col;
     }
-    reverse(): expression.GFormat<Expression, fs.ReadStream> {
+    reverse(): this {
       return this;
     }
     equals(another: expression.GFormat<Expression, fs.ReadStream>): boolean {
