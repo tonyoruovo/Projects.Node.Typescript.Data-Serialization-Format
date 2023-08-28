@@ -1,8 +1,10 @@
-import { ReadStream } from "fs";
+import { createReadStream, createWriteStream, ReadStream, WriteStream } from "fs";
+import { TransformCallback } from "node:stream";
 import utility from "../utility.js";
 import expression from "./expression.js";
 import json from "./json.js";
 import parser from "./parser.js";
+import iconv from "iconv-lite";
 /**
  * #### Examples
  * - .ini
@@ -32,6 +34,20 @@ import parser from "./parser.js";
  * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly.
  */
 namespace ini {
+    /**
+     * Does the same function as {@link Format.append}.
+     */
+    function append(f: Format<any>, data: Section, s?: Syntax, p?: Params, name = "") {
+        for (const key in data.map) {
+            if (data.map[key] instanceof Section)
+            append(f, data.map[key] as Section, s, p, name.length > 0 ? `${name}.${key}` : "");
+            else if (data.map[key] instanceof Property){
+                f.append(`${name}]`, s, p);
+                f.append(`${data.comments.inline && data.comments.inline.length > 0 ? data.comments.inline : ""}\n` ? "]" : "", s, p);
+                f.append((data.map[key] as Property), s, p);
+            } else throw new expression.ExpressionError(`Illegal value found at ${name}.${key}`);
+        }
+    }
     function unwrapComments(comments: { preceding: readonly string[] }, s?: Syntax) {
         if(utility.isValid(s)) return s!.comments.chars[0] + comments.preceding.join("\n;").concat("\n");
         return ";" + comments.preceding.join("\n;").concat("\n");
@@ -297,7 +313,41 @@ namespace ini {
       process(chunk: CH, syntax: Syntax, p: Params | any): void;
     //   readonly bytes?: number;
     }
-    export class JSONLexer implements MutableLexer<json.Value>{}
+    export class JSONLexer implements MutableLexer<json.Value>{
+        end(syntax: Syntax, p: any): void {
+            throw new Error("Method not implemented.");
+        }
+        process(chunk: json.Value, syntax: Syntax, p: any): void {
+            throw new Error("Method not implemented.");
+        }
+        processed: () => Token[];
+        unprocessed = () => this.src;
+        frequency(type: parser.Type): number {
+            throw new Error("Method not implemented.");
+        }
+        indexOf(type: parser.Type): number {
+            throw new Error("Method not implemented.");
+        }
+        lastIndexOf(type: parser.Type): number {
+            throw new Error("Method not implemented.");
+        }
+        hasTokens(): boolean {
+            throw new Error("Method not implemented.");
+        }
+        canProcess(): boolean {
+            throw new Error("Method not implemented.");
+        }
+        next<P>(syntax?: Syntax | undefined, params?: P | undefined): Token {
+            throw new Error("Method not implemented.");
+        }
+        src?: any;
+        position(): number {
+            throw new Error("Method not implemented.");
+        }
+        line(): number {
+            throw new Error("Method not implemented.");
+        }
+    }
     /**Since this is a line oriented data-serialisation-format, strings are tokenised by lines and not individually */
     export class StringLexer implements MutableLexer{
         #ln: number;
@@ -702,7 +752,7 @@ namespace ini {
             return utility.hashCode32(false, utility.asHashable(this.key), utility.asHashable(this.value), utility.asHashable(this.comments));
         }
         toString(): string {
-          return this.debug();
+          return JSON.stringify(this);
         }
     }
     class Section implements Expression {
@@ -749,14 +799,15 @@ namespace ini {
             format.append(this, syntax, params);
         }
         private _debug(name = "", section: Section = this): string{
+            let rv = "";
             for (const key in section._map) {
                 if(section._map[key] instanceof Section) {
                     return section._debug(name.length > 0 ? `${name}.${key}` : `[${key}`, section._map[key] as Section);
                 } else if (section._map[key] instanceof Property){
-                    name += `]${this.comments.inline && this.comments.inline.length > 0 ? this.comments.inline : ""}\n${(section._map[key] as Property).debug()}`;
+                    rv += `${name}]${this.comments.inline && this.comments.inline.length > 0 ? this.comments.inline : ""}\n${(section._map[key] as Property).debug()}`;
                 } else throw new expression.ExpressionError(`Illegal value found at ${name}.${key}`);
             }
-            return name;
+            return rv;
         }
         debug(): string {
             return (this.comments.preceding.length > 0 ? unwrapComments(this.comments) : "") + this._debug();
@@ -777,8 +828,11 @@ namespace ini {
         public remove(name: string) {
             delete this._map[name];
         }
+        public get map() {
+            return Object.freeze(this._map);
+        }
         toString(): string {
-          return this.debug();
+            return JSON.stringify(this);
         }
     }
     class Property implements Expression {
@@ -827,7 +881,7 @@ namespace ini {
             return utility.hashCode32(false, utility.asHashable(this.comments), utility.asHashable(this._values));
         }
         toString(): string {
-          return this.debug();
+            return JSON.stringify(this);
         }
     }
     class Text implements Expression {
@@ -851,6 +905,9 @@ namespace ini {
         hashCode32(): number {
             return utility.hashCode32(true, utility.asHashable(this.comments), utility.asHashable(this.text));
         }
+        toString() {
+            return JSON.stringify(this);
+        }
     }
     /**Convenience class to allow for proper return values using `parse` */
     export class Parser extends parser.PrattParser<Expression, Syntax> {}
@@ -864,6 +921,7 @@ namespace ini {
         append(data: Appendage, s?: Syntax | undefined, p?: Params | undefined): void {
             if(typeof data === "string"){
                 this._data +=  data;
+                this.modifications++;
             } else if(data instanceof KeyValue) {
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 this.append(`${data.key} ${s!.delimiters[0]} ${data.value}`, s, p);
@@ -874,41 +932,186 @@ namespace ini {
                     this.append(data.values[i], s, p);
                 }
                 this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
-                // this.append(`${data.comments.preceding.length > 0 ? unwrapComments(data.comments) : ""}${data._values.map(x => x.debug()).join("")}`, s, p);
-            }
-            else if(data instanceof Section){}
-            else if(data instanceof Text) {
+            } else if(data instanceof Section){
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                append(this, data, s, p);
+            } else if(data instanceof Text) {
                 this._data += data.text;
-            }
-            else throw new expression.FormatError("format not supported");
+                this.modifications++;
+            } else throw new expression.FormatError("format not supported");
         }
         data(): string {
             return this._data;
         }
-        reverse(): expression.GFormat<Expression, string> {
-            throw new Error("Method not implemented.");
+        reverse(): this {
+            this._data.split("").reverse().join("");
+            return this;
         }
         equals(another: expression.GFormat<Expression, string>): boolean {
-            throw new Error("Method not implemented.");
+            if (another instanceof StringFormat) return this.compareTo(another) === 0;
+            return false;
         }
-        readonly modifications: number = 0;
+        modifications: number = 0;
         readonly bpc: number = 8;
         readonly bpn: number = 32;
         hashCode32(): number {
-            throw new Error("Method not implemented.");
+            return utility.hashCode32(false, utility.asHashable(this.modifications), utility.asHashable(this.bpc), utility.asHashable(this.bpn), utility.asHashable(this._data));
         }
         toJSON(): string {
-            throw new Error("Method not implemented.");
+            return JSON.stringify(this);
         }
         compareTo(obj?: expression.GFormat<Expression, string> | undefined): utility.Compare {
-            throw new Error("Method not implemented.");
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
         }
     }
     export class JSFormat implements Format<json.Value> {
+        private _data: json.Pair = {};
+        private _append(data: Section, rv: any, s?: Syntax, p?: Params) {
+            for (const key in data.map) {
+                if (data.map[key] instanceof Section){
+                    rv[key] = {};
+                    this._append(data.map[key] as Section, rv, s, p);
+                }
+                else if (data.map[key] instanceof Property){
+                    rv[key] = Array<string>();
+                    for (let i = 0; i < (data.map[key] as Property).values.length; i++) {
+                        // this.append((data.map[key] as Property).values[i], s, p);
+                        rv[key].push((data.map[key] as Property).values[i].value);
+                    }
+                } else throw new expression.ExpressionError(`Illegal value found at ${key}`);
+            }
+        }
+        append(data: Appendage, s?: Syntax | undefined, p?: Params | undefined): void {
+            if(typeof data === "string"){
+                this._data[data] = null;
+                this.modifications++;
+            } else if(data instanceof KeyValue) {
+                if(!utility.isValid(this._data[data.key])) this._data[data.key] = Array<string>();
+                (this._data[data.key] as string[]).push(data.value);
+            } else if(data instanceof Property){
+                for (let i = 0; i < data.values.length; i++) {
+                    this.append(data.values[i], s, p);
+                }
+            } else if(data instanceof Section){
+                append(this, data, s, p);
+            } else if(data instanceof Text) {
+                this._data[data.text] = null;
+                this.modifications++;
+            } else throw new expression.FormatError("format not supported");
+        }
+        data(): json.Pair {
+            return this._data;
+        }
+        reverse(): this {
+            return this;
+        }
+        equals(another: expression.GFormat<Expression, json.Value>): boolean {
+            if (another instanceof StringFormat) return this.compareTo(another) === 0;
+            return false;
+        }
+        modifications: number = 0;
+        readonly bpc: number = 8;
+        readonly bpn: number = 32;
+        hashCode32(): number {
+            return utility.hashCode32(false, utility.asHashable(this.modifications), utility.asHashable(this.bpc), utility.asHashable(this.bpn), utility.asHashable(this._value));
+        }
+        toJSON(): string {
+            return JSON.stringify(this);
+        }
+        compareTo(obj?: expression.GFormat<Expression, json.Value> | undefined): utility.Compare {
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
+        }
     }
     export class FileFormat implements Format<ReadStream> {
+        private _str: WriteStream;
+        constructor(filename = "./file.ini"){
+            this._str = createWriteStream(filename, {
+                autoClose: true,
+                emitClose: false,
+                encoding: "utf-8"
+            });
+        }
+        public endWrite() {
+          this._str!.end();
+          this._str!.close();
+        }
+        append(data: Appendage, s?: Syntax | undefined, p?: Params | undefined): void {
+            if(typeof data === "string"){
+                this._str.write(data);
+                this.modifications++;
+            } else if(data instanceof KeyValue) {
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                this.append(`${data.key} ${s!.delimiters[0]} ${data.value}`, s, p);
+                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+            } else if(data instanceof Property){
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                for (let i = 0; i < data.values.length; i++) {
+                    this.append(data.values[i], s, p);
+                }
+                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+            } else if(data instanceof Section){
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                append(this, data, s, p);
+            } else if(data instanceof Text) {
+                this._str.write(data.text);
+                this.modifications++;
+            }
+            else throw new expression.FormatError("format not supported");
+        }
+        data(): ReadStream {
+            return createReadStream(this._str.path, {
+              autoClose: true,
+              encoding: "utf-8"
+            });
+        }
+        reverse(): this {
+            return this;
+        }
+        equals(another: expression.GFormat<Expression, ReadStream>): boolean {
+            if (another instanceof FileFormat) return this.compareTo(another) === 0;
+            return false;
+        }
+        modifications: number = 0;
+        readonly bpc: number = 8;
+        readonly bpn: number = 32;
+        hashCode32(): number {
+            return utility.hashCode32(false, utility.asHashable(this.modifications), utility.asHashable(this.bpc), utility.asHashable(this.bpn), utility.asHashable(this._str));
+        }
+        toJSON(): string {
+            return JSON.stringify(this);
+        }
+        compareTo(obj?: expression.GFormat<Expression, ReadStream> | undefined): utility.Compare {
+            return utility.compare(this.hashCode32(), obj?.hashCode32());
+        }
     }
     export class Converter extends parser.Converter<parser.GToken<string>, Expression, Syntax, Parser, Params, MutableLexer, any> {
+        _transform(
+          chunk: any,
+          encoding: BufferEncoding,
+          callback: TransformCallback
+        ): void {
+          if (!this.writableObjectMode) {
+            chunk = Buffer.isBuffer(chunk)
+              ? iconv.decode(chunk as Buffer, this.syntax.encoding)
+              : String(chunk);
+          }
+          try {
+            this.lexer.process(chunk, this.syntax, this.params);
+          } catch (e) {
+            return callback(e as Error);
+          }
+        }
+        _flush(callback: TransformCallback): void {
+          this.lexer.end(this.syntax, this.params);
+          if (this.lexer.hasTokens()) {
+            try {
+              this.push(this.parser.parse(this.lexer, this.syntax, this.params));
+              return callback();
+            } catch (e) {
+              return callback(e as Error);
+            }
+          }
+        }
     }
 }
 export default ini;
