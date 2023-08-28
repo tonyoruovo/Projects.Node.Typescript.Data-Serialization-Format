@@ -3,6 +3,27 @@ import { TransformOptions, TransformCallback } from "node:stream";
 import expression from "./expression.js";
 
 namespace json {
+  /**
+   * Tests whether the argument is not an object/array
+   * @param {any} data the value to be tested
+   * @returns {boolean} `true` if the argument is not an object/array otherwise returns `false`
+   */
+  export function isAtomic(data: any): boolean {
+    return (
+      data === null || (typeof data !== "object" && !Array.isArray(data))
+    );
+  }
+  /**
+   * Checks if the array contains exclusively atomic values (as specified by {@link json.Atom `json.Atom`}) and return `true` if it is, else returns `false`.
+   * @param {any[]} array an array
+   * @returns {boolean} `true` if the argument does not contain an array/object otherwise `false`
+   */
+  export function arrayIsAtomic(array: any[]): array is Array<Atom> {
+    for (let i = 0; i < array.length; i++) {
+      if(!isAtomic(array[i])) return false;
+    }
+    return true;
+  }
   /**The atomic types of json, used elsewhere for detecting parameter that have json atomic type(s) */
   export type Atom = null | boolean | number | string;
   /**The object types of json, used elsewhere for detecting parameter that have object type(s) */
