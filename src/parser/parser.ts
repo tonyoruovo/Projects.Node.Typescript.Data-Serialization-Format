@@ -17,6 +17,23 @@ import exp from "./expression.js";
  * memorywise (in terms of RAM).
  */
 namespace parser {
+  /**
+   * Parses the given `text` argument into a type given by the `format.data()` and returns that value. Althogh this method can probably be used to parse complex textual data, it is meant for simple single text.
+   * @param {string} text the value to be parsed
+   * @param {(text: string) => () => Token} tokenizer a functor that tokenizes the lexeme(s) and identifiers of `text` into valid {@link Token `Token`} objects and then returns a function that can retrive the tokens with each successive call.
+   * @param {{data: () => any, append: (input: any, syntax: Syntax, params?: P) => void}} format a formatter of sorts. Please see the docs of the `expression` namespace for more about formatters.
+   * @param {Syntax} syntax the syntax that will provide commands for the parsing
+   * @param {P} [params] an object that complements the work of the `syntax` parameter. Can be left undefined, however if present, then `format.append` will recieve this object.
+   * @template P a type of an object that may be used during parsing and formatting 
+   * @returns {any} the result of parsing `text`
+   */
+  export function parseText<P>(text: string, tokenizer: (text: string) => () => Token, format: {data: () => any, append: (input: any, syntax: Syntax, params?: P) => void}, syntax: Syntax, params?: P): any{
+    const p = new PrattParser();
+    const l = tokenizer(text);
+    const e = p.parse(l as any, syntax as any, params);
+    (e as any).format(format as any, syntax, params);
+    return format.data();
+  }
 
   export type Unicode = "utf-1" | "utf1" | "utf-7" | "utf7" | "utf-8" | "utf8" | "utf-16" | "utf16" | "utf16le" | "utf-16le" |  "utf-32" | "utf32" |  "utf-32le" | "utf32le" | "utf-64" | "utf64" | "utf-128" | "utf128" | "utf-ebcdic" | "utfebcdic";
   export type Encoding = Unicode | "ascii" | "scsu" | "bocu-1" | "bocu1" | "gb18030" | "binary";
