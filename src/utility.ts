@@ -1,14 +1,18 @@
 import { Decimal } from "decimal.js";
-
+import { EOL } from "node:os";
+import { existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * Sets of useful methods for this API
  */
 namespace utility {
+  const dirname = resolve(fileURLToPath(new URL(".", import.meta.url).toString()));
   /**
    * Gets this platforms end-of-line `string`
    * @constant {string} a value that represents the end-of-line string on this ooperating system
    */
-  export const eol: string = require("node:os").EOL;
+  export const eol: string = EOL;
   /**
    * A type that encapsulates an enum of 3 values i.e `-1`, `0` and `1` which may be used
    * in comparing values.
@@ -1007,6 +1011,17 @@ namespace utility {
    */
   export function escSRCh(str: string): string {
     return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+  }
+ /**
+   * Performs backward recursion from the given `current` and returns the path to the first folder where a `package.json` exists.
+   * @params { string } currentDir the directory from which path traversal begins.
+   * @returns {string} the path to the folder where the first `package.json` file was found
+   */
+  export function rootFolder(currentDir = dirname) {
+    while(!existsSync(join(currentDir, 'package.json'))) {
+      currentDir = join(currentDir, '..');
+    }
+    return currentDir
   }
 }
 

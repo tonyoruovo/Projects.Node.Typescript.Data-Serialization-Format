@@ -29,11 +29,30 @@ import iconv from "iconv-lite";
  * - **_escaped text_** --> *escaped* - text precede by an *escape*
  * 
  * @summary Defines the constituents of the ini pipeline.
- * @description The ini pipeline constitutes tokenisers (lexers) for tokenising text and json data; a parser which translates the
+ * @description
+ * The ini pipeline constitutes tokenisers (lexers) for tokenising text and json data; a parser which translates the
  * tokens into expressions; formatters which can create file, in-memory and simple string formats; a converter which binds several
- * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly. This cannot parse '.cfg' texts. \
+ * of the aforementioned components so that the data contained within can be tranferred to other data languages seamlessly. This cannot parse '.cfg' texts.
+ * @example ### An example of an ini file:
+ * ```ini
+ * ; The start of this config
+ * [Global]
+ * prop1 = 12345
+ * prop2 = "string"
+ * prop3 = false
+ * [Paths]
+ * "\=unix\=" = "C:\\path\\to\\file\\"
+ * config = {unix}/config
+ * [.Relative]
+ * empty
+ * [Paths.SubPaths]
+ * light = 3.33
+ * dark = | ;an inline comment
+ * [.Relative]
+ * mostly = great
+ * ```
  * @remarks
- * Recfiles are currently unsupported
+ * Recfiles and toml are currently unsupported
  */
 namespace ini {
     /**
@@ -89,6 +108,7 @@ namespace ini {
             else if(p.match(QUOTE_END, l, s, pa)) comments.push(p.consume(QUOTE_END, l, s, pa).value);
             else if(p.match(ESCAPE, l, s, pa)) comments.push(p.consume(ESCAPE, l, s, pa).value);
             else if(p.match(ESCAPED, l, s, pa)) comments.push(p.consume(ESCAPED, l, s, pa).value);
+            else if(p.match(WHITESPACE, l, s, pa)) comments.push(p.consume(WHITESPACE, l, s, pa).value);
             else if(p.match(EOL, l, s, pa)) break;
         }
         return comments;
@@ -181,7 +201,7 @@ namespace ini {
             }
         };
         private _ensureUniqueness(s: string, truthy?: any) {
-            if(utility.isValid(s)) throw Error("undefined cannot be used");
+            if(!utility.isValid(s)) throw Error("undefined cannot be used");
             if(truthy && s.length > 1) throw Error("Only a single character is required");
             if(this._com!.chars.indexOf(s) >= 0)
             throw new Error(`${s} is not unique. It is used as a comment`); 
@@ -204,9 +224,11 @@ namespace ini {
             this.addPrefixCommand(D_QUOTE, new ParseText());
             this.addPrefixCommand(QUOTE, new ParseText());
             this.addPrefixCommand(SECTION_START, new ParseSection());
+            this.addPrefixCommand(WHITESPACE, new ParseSpace());
             this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));
             this.addInfixCommand(ASSIGNMENT, new Assign(parser.Direction.INFIX));
             this.addInfixCommand(EOL, new EndLine());
+            this.addInfixCommand(WHITESPACE, new ParseSpace());
         }
         public removeSupportForNesting() : SyntaxBuilder{
             this._nes = undefined;
@@ -727,19 +749,20 @@ namespace ini {
     }
 
     export const EOF: parser.GType<string> = new Type("-1", Number.MIN_SAFE_INTEGER);
-    export const EOL: parser.GType<string> = new Type("0", 1);
+    export const EOL: parser.GType<string> = new Type("0", 5);
     export const SECTION_START: parser.GType<string> = new Type("1", 2);
-    export const QUOTE: parser.GType<string> = new Type("2", 2);
-    export const D_QUOTE: parser.GType<string> = new Type("3", 2);
-    export const TEXT: parser.GType<string> = new Type("4", 2);
-    export const SUB_SECTION: parser.GType<string> = new Type("5", 2);
-    export const SECTION_END: parser.GType<string> = new Type("6", 2);
-    export const ASSIGNMENT: parser.GType<string> = new Type("7", 2);
-    export const COMMENT: parser.GType<string> = new Type("8", 2);
-    export const QUOTE_END: parser.GType<string> = new Type("9", 2);
-    export const D_QUOTE_END: parser.GType<string> = new Type("10", 2);
-    export const ESCAPE: parser.GType<string> = new Type("11", 2);
-    export const ESCAPED: parser.GType<string> = new Type("12", 2);
+    export const QUOTE: parser.GType<string> = new Type("2", 5);
+    export const D_QUOTE: parser.GType<string> = new Type("3", 5);
+    export const TEXT: parser.GType<string> = new Type("4", 5);
+    export const SUB_SECTION: parser.GType<string> = new Type("5", 3);
+    export const SECTION_END: parser.GType<string> = new Type("6", 1);
+    export const ASSIGNMENT: parser.GType<string> = new Type("7", 3);//Does not matter the precedence it has will will always be parsed with the `parse(0)` So it will be parsed as long as it's precedence is greater than 0
+    export const COMMENT: parser.GType<string> = new Type("8", 5);
+    export const QUOTE_END: parser.GType<string> = new Type("9", 5);
+    export const D_QUOTE_END: parser.GType<string> = new Type("10", 5);
+    export const ESCAPE: parser.GType<string> = new Type("11", 5);
+    export const ESCAPED: parser.GType<string> = new Type("12", 5);
+    export const WHITESPACE: parser.GType<string> = new Type("13", 5);
 
     class Token implements parser.GToken<string> {
         public readonly length;
@@ -779,6 +802,7 @@ namespace ini {
     export class JSONLexer implements MutableLexer<json.Value> {
         private _queue;
         private _i = 0;
+        private _canProcess = true;
         constructor(){
             this._queue = Array<Token>();
         }
@@ -827,8 +851,8 @@ namespace ini {
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
                         } else if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
                             name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
-                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
                             this._process(o[i], s, name);
                         } else {
                             this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
@@ -839,8 +863,8 @@ namespace ini {
                     } else if(typeof o[i] === "object") {
                         if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
                             name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
-                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
                             this._process(o[i], s, name);
                         } else {
                             this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++), s.globalName);
@@ -872,8 +896,8 @@ namespace ini {
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), s.globalName);
                         } else if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
                             name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
-                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
                             this._process((o[key] as any[]), s, name);
                         } else {
                             this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
@@ -884,8 +908,8 @@ namespace ini {
                     } else if(typeof o[key] === "object") {
                         if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
                             name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
-                            name.push(new Token(s.nesting!.chars[0], SECTION_START, 0, 0, this._i++));
                             this._process(o[key], s, name);
                         } else {
                             this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++), s.globalName);
@@ -898,13 +922,14 @@ namespace ini {
             }
         }
         #manufacture(t: Token, g: string) {
-            if(!this.canProcess()){
-                this._queue.push(t);
-            } else {//writes a global section as a metadata
+            if(this.canProcess()){//writes a global section as a metadata
                 this._queue.push(new Token("[", SECTION_START, -1, -1, 0));
                 this._queue.push(new Token(g, TEXT, -1, -1, 1));
-                this._queue.push(new Token("]", SECTION_END, -1, -1, g.length));
+                this._queue.push(new Token("]", SECTION_END, -1, -1, 2));
+                this._queue.push(new Token("\n", EOL, -1, -1, 3));
             }
+            this._queue.push(t);
+            this._canProcess = false;
         }
         end(): void {}
         /**
@@ -912,6 +937,7 @@ namespace ini {
          * @inheritdoc
          */
         process(chunk: json.Value, syntax: Syntax, p: any): void {
+            this.src = chunk;
             if(chunk === null) this.#manufacture(new Token("", TEXT, 0, 0, this._i++), syntax.globalName);
             else if(typeof chunk === "boolean") this.#manufacture(new Token(chunk ? "true" : "false", TEXT, 0, 0, this._i++), syntax.globalName);
             else if(typeof chunk === "number") this.#manufacture(new Token(String(chunk), TEXT, 0, 0, this._i++), syntax.globalName);
@@ -924,7 +950,6 @@ namespace ini {
                 } while (array.length > 0);
             }
             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++), syntax.globalName);
-            this.src = chunk;
         }
         processed = () => this._queue;
         unprocessed = () => this.src;
@@ -951,7 +976,7 @@ namespace ini {
           return this._queue.length > 0;
         }
         canProcess(): boolean {
-            return !utility.isValid(this.src)
+            return this._canProcess;
         }
         next(): Token {
           while (true) {
@@ -1006,13 +1031,13 @@ namespace ini {
             return rv;
         }
         #manufacture(t: Token, g: string) {
-            if(!this.#isStart()){
-                this.#queue.push(t);
-            } else {//writes a global section as a metadata
+            if(this.#isStart()){//writes a global section as a metadata
                 this.#queue.push(new Token("[", SECTION_START, -1, -1, 0));
                 this.#queue.push(new Token(g, TEXT, -1, -1, 1));
-                this.#queue.push(new Token("]", SECTION_END, -1, -1, g.length));
+                this.#queue.push(new Token("]", SECTION_END, -1, -1, 2));
+                this.#queue.push(new Token("\n", EOL, -1, -1, 3));
             }
+            this.#queue.push(t);
         }
         end(syntax: Syntax, params: Params): void {
             if(this.canProcess()) this.process("", syntax, params);
@@ -1128,6 +1153,15 @@ namespace ini {
                     this.#manufacture(new Token(token, ASSIGNMENT, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
                     this.#escText = "";
                     this.#esc = 0;
+                } else if(utility.isWhitespace(token)){
+                    if(this.#text.length > 0) {
+                        // this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#text += token;
+                    } else {
+                        this.#manufacture(new Token(token, WHITESPACE, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                        this.#escText = "";
+                        this.#esc = 0;
+                    }
                 } else {
                     this.#text += token;
                 }
@@ -1241,6 +1275,7 @@ namespace ini {
                 default: {
                     const left  = isText(ap) ? (ap as Text).text : "";
                     const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                    if(!(rightExpr instanceof Text)) throw new parser.ParseError("Could not parse whatever was after the section nesting operator");
                     const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
                     const preceding = pa!.block;
                     pa!.block = [];
@@ -1287,7 +1322,7 @@ namespace ini {
             const scope = new Section({preceding: Object.freeze([...pa!.block]), inline: pa!.inline});
             pa!.block = [];
             pa!.inline = "";
-            while(!p.match(SECTION_START, l, s, pa!)) {
+            while((!p.match(SECTION_START, l, s, pa!)) && !p.match(EOF, l, s, pa!)) {
                 let prop = p.parse(l, s, pa);
                 pa!.assigned = false;
                 if(!utility.isValid(prop)) {//a blank or comment line
@@ -1304,7 +1339,7 @@ namespace ini {
 
             //add this scope to the parent/global scope
             (ap as Section).add(s, pa!.section, scope);
-            return ap;//return the global scope
+            return ap;//return the parent/global scope
         }
     }
     /**SUB_SECTION (.), ASSIGNMENT (=) and COMMENT (;) are all parsed as text when inside a quote or double quotes */
@@ -1329,8 +1364,9 @@ namespace ini {
                         tokens.push(p.consume(SECTION_START, l, s, pa!) as Token);
                     } else if(p.match(SECTION_END, l, s, pa!)){
                         tokens.push(p.consume(SECTION_END, l, s, pa!) as Token);
-                    }
-                    else if(p.match(D_QUOTE, l, s, pa))
+                    } else if(p.match(WHITESPACE, l, s, pa!)) {
+                        tokens.push(p.consume(WHITESPACE, l, s, pa) as Token);
+                    } else if(p.match(D_QUOTE, l, s, pa))
                     tokens.push(p.consume(D_QUOTE, l, s, pa) as Token);
                     else if(p.match(D_QUOTE_END, l, s, pa))
                     tokens.push(p.consume(D_QUOTE_END, l, s, pa) as Token);
@@ -1359,8 +1395,9 @@ namespace ini {
                         tokens.push(p.consume(SECTION_START, l, s, pa!) as Token);
                     } else if(p.match(SECTION_END, l, s, pa!)){
                         tokens.push(p.consume(SECTION_END, l, s, pa!) as Token);
-                    }
-                    else if(p.match(QUOTE, l, s, pa))
+                    } else if(p.match(WHITESPACE, l, s, pa!)) {
+                        tokens.push(p.consume(WHITESPACE, l, s, pa) as Token);
+                    } else if(p.match(QUOTE, l, s, pa))
                     tokens.push(p.consume(QUOTE, l, s, pa) as Token);
                     else if(p.match(QUOTE_END, l, s, pa))
                     tokens.push(p.consume(QUOTE_END, l, s, pa) as Token);
@@ -1374,14 +1411,14 @@ namespace ini {
             let string = yp.value;
             while(true) {
                 if(p.match(TEXT, l, s, pa!)) string += p.consume(TEXT, l, s, pa);
+                else if(p.match(WHITESPACE, l, s, pa!)) string += p.consume(WHITESPACE, l, s, pa);
                 else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) string += p.consume(SUB_SECTION, l, s, pa);
+                else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) string += p.consume(ASSIGNMENT, l, s, pa).value;
                 else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
                     const esc = p.consume(ESCAPE, l, s, pa);
                     const escaped = p.consume(ESCAPED, l, s, pa);
                     string += s.escape!.parse(esc.value + escaped.value);
-                } else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) {
-                    string += p.consume(ASSIGNMENT, l, s, pa).value;
-                }else break;
+                } else break;
             }
             return new Text(string.trim());
         }
@@ -1390,6 +1427,16 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             skipBlankLines(l,s, p, pa!);
             pa!.assigned = false;
+            // if(p.match(SECTION_START, l, s, pa)) return s.getCommand(parser.Direction.PREFIX, SECTION_START)!.parse(ap, p.consume(SECTION_START, l, s, pa) as Token, p, l, s, pa);
+            return ap;
+        }
+    }
+    /**A command to parse prefix whitespace. Because of the way the lexer creates tokens, this will only be called if a whitespace is not a delimiter like {@link PROPERTIES `PROPERTIES`} */
+    class ParseSpace implements Command {
+        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            while(p.match(WHITESPACE, l, s, pa!)){
+                p.consume(WHITESPACE, l,s, pa);
+            }
             return ap;
         }
     }
@@ -1668,7 +1715,7 @@ namespace ini {
         }
     }
     export class JSFormat implements Format<json.Value> {
-        private _data: json.Pair = {};
+        private _data: json.Pair = null as unknown as {};
         private _append(data: Section, rv: any, s?: Syntax, p?: Params) {
             for (const key in data.map) {
                 if (data.map[key] instanceof Section){
@@ -1699,11 +1746,15 @@ namespace ini {
                     this.append(data.values[i], s, p);
                 }
             } else */if(data instanceof Section){
-                this._append(data, this._data, s, p);
+                const keys = Object.keys(data.map);
+                if(!utility.isValid(this._data)){
+                    this._data = {};
+                    this._append(data.map[s!.globalName] as Section, this._data, s, p);
+                } else this._append(data, this._data, s, p);
             }/* else if(data instanceof Text) {
                 this._data[data.text] = null;
                 this.modifications++;
-            } */else throw new expression.FormatError("format not supported");
+            } */else throw new expression.FormatError("format not supported", data as any);
         }
         data(): json.Pair {
             return this._data;
@@ -1855,7 +1906,7 @@ namespace ini {
         .removeUnicodeChar('u')// Donot support unicode escapes
         // .supportNonQuotedEscape(false)//already the default
         // .supportQuotedText(true)//already the default
-        .setEscapeChar('')//Prevent escapes. No need to set escape parser as it will never be needed by the parser or formatter as no escape is set
+        .setEscapeChar('\x00')//Prevent escapes. No need to set escape parser as it will never be needed by the parser or formatter as no escape is set
         .setEscapeParser(e => e)// Just for lols
         .build();
     // export const UNIX

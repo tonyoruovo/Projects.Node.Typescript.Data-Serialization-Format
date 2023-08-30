@@ -55,11 +55,14 @@ namespace json {
       public readonly format: F,
       options: TransformOptions = {
         readableObjectMode: true,
-        writableObjectMode: true,
-        allowHalfOpen: true,
+        writableObjectMode: true
       }
     ) {
-      super(options, syntax, params);
+      super({
+        ...options,
+        allowHalfOpen: true,
+        objectMode: true
+      }, syntax, params);
     }
     /**
      * @inheritdoc
@@ -75,16 +78,18 @@ namespace json {
           this.syntax,
           this.params
         );
-        this.push(this.format.data());
+        // const array = this.format.data() as Pair[];
+        // console.log(array);
+        return callback();
       } catch (e) {
         return callback(e as Error);
       }
-      return callback();
     }
     /**
      * @inheritdoc
      */
     _flush(callback: TransformCallback): void {
+      this.push(this.format.data());
       callback();
     }
   }

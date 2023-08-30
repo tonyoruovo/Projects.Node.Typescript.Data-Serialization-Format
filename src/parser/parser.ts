@@ -98,7 +98,7 @@ namespace parser {
      */
     constructor(public readonly token: Token, cause?: Error) {
       super(
-        `Unexpected token "${token.value}" at line: ${token.lineStart}`,
+        `Unexpected token "${token.value}" at line: ${token.lineStart}, position: ${token.startPos}`,
         cause
       );
     }
@@ -754,15 +754,11 @@ namespace parser {
      * @returns {E} a specific type of expression created by this parser that is
      * the AST of the values parsed
      */
-    public parseWithPrecedence<P>(
-      beginingPrecedence: number,
-      l: GLexer<GToken<TV>, S>,
-      s: S,
-      params: P
-    ): E {
+    public parseWithPrecedence<P>(beginingPrecedence: number, l: GLexer<GToken<TV>, S>, s: S, params: P): E {
       // the first token
       let t = this.readAndPop(l, s, params);
-      // console.log(t);
+      // console.log("first");
+      // console.table(t);
       //must be a prefix
       const prefix = s.getCommand(Direction.PREFIX, t.type!);
 
@@ -775,7 +771,8 @@ namespace parser {
       while (beginingPrecedence < this.getPrecedence(l, s, params)) {
         //The next token
         t = this.readAndPop(l, s, params);
-        // console.log(t);
+        // console.log('second');
+        // console.table(t);
         // is expected to be an infix
         const infix = s.getCommand(Direction.INFIX, t.type!)!;
         //!!!Expreimental!!!

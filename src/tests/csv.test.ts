@@ -1,42 +1,48 @@
-import csv from "../../parser/csv.js";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import csv from "../parser/csv.js";
 import { createReadStream } from "node:fs";
-import json from "../../parser/json.js";
+import json from "../parser/json.js";
+import ini from "../parser/ini.js";
+import utility from "../utility.js";
 
-const path = resolve(
-  fileURLToPath(new URL(".", import.meta.url).toString()),
-  "./test.csv"
-);
-
+const path = `${utility.rootFolder()}/data/csv/test2.csv`;
 // lexer test
 const rs = createReadStream(path);
 // rs.pipe(process.stdout);
-// const format = new csv.StringFormat();
-const format2 = new csv.JSFormat();
-const syntax = csv.RFC_4180;
-const params = new csv.Params();
-const parser = new csv.Parser();
-const t = new csv.Converter(
+const csvSyntax = csv.RFC_4180;
+const csvParams = new csv.Params();
+const csvParser = new csv.Parser();
+const iniJsFormat = new ini.JSFormat();
+const iniSyntax = ini.UNIX;
+const iniParams = new ini.Params();
+const iniParser = new ini.Parser();
+const iniJSONLexer = new ini.JSONLexer();
+rs.pipe(new csv.Converter(
   {
     writableObjectMode: false,
     readableObjectMode: true,
   },
   new csv.StringLexer(),
-  parser,
-  syntax,
-  params
-);
-rs.pipe(t).pipe(new json.Converter(syntax, params, format2))
-  // .on("data", (chunk) => {
-  //   (chunk as csv.Expression).format(format, syntax, params);
-  //   (chunk as csv.Expression).format(format2, syntax, params);
-  // })
-  // .on("end", () => {
-  //   process.stdout.write(format.data());
-  //   console.table(params.header);
-  //   console.table(format2.data());
-  // });
+  csvParser,
+  csvSyntax,
+  csvParams
+)).pipe(new json.Converter(csvSyntax, csvParams, new csv.JSFormat()))
+// .pipe(new ini.Converter({
+//   writableObjectMode: true,
+//   readableObjectMode: true,
+// }, iniJSONLexer, iniParser, iniSyntax, iniParams))
+.on("data", (chunk) => {
+  //   (chunk as ini.Expression).format(iniJsFormat, iniSyntax, iniParams);
+  iniJSONLexer.process(chunk, iniSyntax, iniParams);
+  console.table(iniJSONLexer.processed());
+  const e = iniParser.parse(iniJSONLexer, iniSyntax, iniParams);
+  // console.log(JSON.stringify(e, null, 2));
+  e.format(iniJsFormat, iniSyntax, iniParams);
+  })
+  .on("end", () => {
+    // process.stdout.write(format.data());
+    // console.table(params.header);
+    console.log(iniJsFormat.data());
+  });
 // const data = [{
 //   "sibling1": "row1 column1",
 //   "sibling2": "row1 column2",

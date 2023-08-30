@@ -2,7 +2,7 @@ import parser from "./parser.js";
 import expression from "./expression.js";
 import utility from "../utility.js";
 import * as fs from "node:fs";
-// import { EOL as lineTerm /*tmpdir*/ } from "node:os";
+//import { EOL as lineTerm /*tmpdir*/ } from "node:os";
 import { TransformCallback } from "node:stream";
 import json from "./json.js";
 import iconv from "iconv-lite";
@@ -2391,7 +2391,7 @@ namespace csv {
     }
   }
   /**
-   * A {@link Syntax `Syntax`} that embodies the rfc4180 specification found [here](https://www.rfc-editor.org/rfc/rfc4180). \
+   * A {@link Syntax `Syntax`} that embodies the Rfc 4180 specification found [here](https://www.rfc-editor.org/rfc/rfc4180). \
    * \
    * The following are the configuration of this object:
    * - A field may be quoted (enclosed in double quotes) or unquoted, however, if the field contains special characters such as {@link Syntax.eol line terminators}, {@link Syntax.separator separators}, and {@link Syntax.dQuotes quotes} then it must be quoted otherwise the parser becomes unpredictable.
