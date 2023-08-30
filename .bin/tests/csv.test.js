@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import json from "../parser/json.js";
 import ini from "../parser/ini.js";
 import utility from "../utility.js";
-const path = `${utility.rootFolder()}/data/csv/test2.csv`;
+const path = `${utility.rootFolder()}/data/csv/test.csv`;
 // lexer test
 const rs = createReadStream(path);
 // rs.pipe(process.stdout);
@@ -26,9 +26,10 @@ rs.pipe(new csv.Converter({
     .on("data", (chunk) => {
     //   (chunk as ini.Expression).format(iniJsFormat, iniSyntax, iniParams);
     iniJSONLexer.process(chunk, iniSyntax, iniParams);
-    console.table(iniJSONLexer.processed());
+    // console.table(iniJSONLexer.processed());
     const e = iniParser.parse(iniJSONLexer, iniSyntax, iniParams);
-    // console.log(JSON.stringify(e, null, 2));
+    // console.log((e as any)['map']['0']);
+    // console.log((e as any)['map']);
     e.format(iniJsFormat, iniSyntax, iniParams);
 })
     .on("end", () => {

@@ -228,7 +228,7 @@ namespace ini {
             this.addPrefixCommand(INIT, new Initializer());
             this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));
             this.addInfixCommand(ASSIGNMENT, new Assign(parser.Direction.INFIX));
-            this.addInfixCommand(EOL, new EndLine());
+            // this.addInfixCommand(EOL, new EndLine());
             this.addInfixCommand(WHITESPACE, new ParseSpace());
         }
         public removeSupportForNesting() : SyntaxBuilder{
@@ -750,7 +750,7 @@ namespace ini {
     }
 
     export const EOF: parser.GType<string> = new Type("-1", Number.MIN_SAFE_INTEGER);
-    export const EOL: parser.GType<string> = new Type("0", 5);
+    export const EOL: parser.GType<string> = new Type("0", 1);
     export const SECTION_START: parser.GType<string> = new Type("1", 2);
     export const QUOTE: parser.GType<string> = new Type("2", 5);
     export const D_QUOTE: parser.GType<string> = new Type("3", 5);
@@ -842,7 +842,7 @@ namespace ini {
                         }
                         this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[i]??""), s), ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[i]??""), s), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[i])) {
                         let array = o[i] as any[];
@@ -888,7 +888,7 @@ namespace ini {
                         }
                         this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[key]??""), s), ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[key]??""), s), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[key])) {
                         if(json.arrayIsAtomic(o[key] as any[])) for(let j = 0; j < (o[key] as any[]).length; j++) {
@@ -1248,7 +1248,7 @@ namespace ini {
     }
     class Assign extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            if(pa!.assigned) return s.getCommand(parser.Direction.INFIX, TEXT)!.parse(ap, new Token(yp.value, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
+            // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, TEXT)!.parse(ap, new Token(yp.value, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
             pa!.assigned = true;
             switch(this.direction) {
                 case parser.Direction.PREFIX: {
@@ -1256,8 +1256,7 @@ namespace ini {
                     const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
                     const preceding = pa!.block;
                     pa!.block = [];
-                    //parse inline comments
-                    // if(p.match(COMMENT, l, s, pa!)) p.parse(l, s, pa);
+                    if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
                     return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, "", right);
                 }
                 case parser.Direction.INFIX:
@@ -1265,8 +1264,12 @@ namespace ini {
                 default: {
                     const left  = isText(ap) ? (ap as Text).text : "";
                     const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                    if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
+                    // console.log(p.match(TEXT, l, s, pa));
+                    // console.log(yp);
+                    // console.log(rightExpr);
                     if(!(rightExpr instanceof Text)) throw new parser.ParseError("Could not parse whatever was after the section nesting operator");
-                    const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
+                    const right  = (rightExpr as Text).text;
                     const preceding = pa!.block;
                     pa!.block = [];
                     //parse inline comments
@@ -1324,10 +1327,14 @@ namespace ini {
                     scope.add(s, [], prop as KeyValue);
                 }  else throw new parser.ParseError(`Unexpected value found`);
             }
+            // console.log(scope);
 
-            //add this scope to the parent/global scope
-            (ap as Section).add(s, pa!.section, scope);
-            return ap;//return the parent/global scope
+            if(utility.isValid(ap)){
+                //add this scope to the parent/global scope
+                (ap as Section).add(s, pa!.section, scope);
+                return ap;//return the parent/global scope
+            }
+            return scope;
         }
     }
     /**SUB_SECTION (.), ASSIGNMENT (=) and COMMENT (;) are all parsed as text when inside a quote or double quotes */
@@ -1415,6 +1422,7 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             skipBlankLines(l,s, p, pa!);
             pa!.assigned = false;
+            // console.log(ap);
             // if(p.match(SECTION_START, l, s, pa)) return s.getCommand(parser.Direction.PREFIX, SECTION_START)!.parse(ap, p.consume(SECTION_START, l, s, pa) as Token, p, l, s, pa);
             return ap;
         }
@@ -1423,7 +1431,15 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             ap = new Section(emptyComment());
             while(!p.match(EOF, l, s, pa)){
-                p.parse(l, s, pa);
+                let exp = p.parse(l, s, pa);
+                if(!utility.isValid(exp)) {//a blank or comment line
+                    continue;
+                } else if(exp instanceof Text) {
+                    exp = new KeyValue({preceding: Object.freeze([...pa!.block]), inline: pa!.inline}, exp.text, "");
+                    pa!.block = [];
+                    pa!.inline = "";
+                }
+                (ap as Section).add(s, pa!.section, exp as (Section | KeyValue));
             }
             return ap;
         }
@@ -1508,9 +1524,9 @@ namespace ini {
                         section._map[name] = value?{...value!}as Section:new Section();
                         return;
                     } else break;
-                    case DuplicateDirective.OVERWRITE: if(utility.isValid(section._map[name])) break;
-                    case DuplicateDirective.DISCARD: if(utility.isValid(section._map[name])) return;
-                    case DuplicateDirective.THROW:
+                    case DuplicateDirective.OVERWRITE: break;
+                    case DuplicateDirective.DISCARD: if(utility.isValid(section._map[name])) return; else break;
+                    case DuplicateDirective.THROW: throw new expression.ExpressionError("Duplicate not supported");
                 }
                 section._map[name] = value??new Section();
                 return;
@@ -1590,9 +1606,9 @@ namespace ini {
                     default: break;
                     case DuplicateDirective.OVERWRITE: {
                         if(this._values.length > 0) do {this._values.pop()}while(this._values.length > 0);
-                        return;
+                        break;
                     }
-                    case DuplicateDirective.DISCARD: if(this._values.length > 0) return;
+                    case DuplicateDirective.DISCARD: if(this._values.length > 0) return; else break;
                     case DuplicateDirective.THROW: if(this._values.length > 0) throw Error("Duplicate not supported");
                 }
                 this._values.push(param);
@@ -1717,7 +1733,7 @@ namespace ini {
             for (const key in data.map) {
                 if (data.map[key] instanceof Section){
                     rv[key] = {};
-                    this._append(data.map[key] as Section, rv, s, p);
+                    this._append(data.map[key] as Section, rv[key], s, p);
                 } else if (data.map[key] instanceof Property) {
                     const prop = data.map[key] as Property;
                     if(prop.values.length < 2) {

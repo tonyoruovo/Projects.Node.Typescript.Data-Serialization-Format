@@ -249,7 +249,7 @@ var ini;
             this.addPrefixCommand(ini.INIT, new Initializer());
             this.addInfixCommand(ini.COMMENT, new ParseComment(parser.Direction.INFIX));
             this.addInfixCommand(ini.ASSIGNMENT, new Assign(parser.Direction.INFIX));
-            this.addInfixCommand(ini.EOL, new EndLine());
+            // this.addInfixCommand(EOL, new EndLine());
             this.addInfixCommand(ini.WHITESPACE, new ParseSpace());
         }
         removeSupportForNesting() {
@@ -653,7 +653,7 @@ var ini;
         }
     }
     ini.EOF = new Type("-1", Number.MIN_SAFE_INTEGER);
-    ini.EOL = new Type("0", 5);
+    ini.EOL = new Type("0", 1);
     ini.SECTION_START = new Type("1", 2);
     ini.QUOTE = new Type("2", 5);
     ini.D_QUOTE = new Type("3", 5);
@@ -748,7 +748,7 @@ var ini;
                         }
                         this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[i] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[i] ?? ""), s), ini.TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                     }
                     else if (Array.isArray(o[i])) {
@@ -805,7 +805,7 @@ var ini;
                         }
                         this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[key] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[key] ?? ""), s), ini.TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                     }
                     else if (Array.isArray(o[key])) {
@@ -1205,8 +1205,7 @@ var ini;
     }
     class Assign extends LeftAndRight {
         parse(ap, yp, p, l, s, pa) {
-            if (pa.assigned)
-                return s.getCommand(parser.Direction.INFIX, ini.TEXT).parse(ap, new Token(yp.value, ini.TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
+            // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, TEXT)!.parse(ap, new Token(yp.value, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
             pa.assigned = true;
             switch (this.direction) {
                 case parser.Direction.PREFIX: {
@@ -1214,8 +1213,8 @@ var ini;
                     const right = isText(rightExpr) ? rightExpr.text : "";
                     const preceding = pa.block;
                     pa.block = [];
-                    //parse inline comments
-                    // if(p.match(COMMENT, l, s, pa!)) p.parse(l, s, pa);
+                    if (p.match(ini.EOL, l, s, pa))
+                        skipBlankLines(l, s, p, pa);
                     return new KeyValue({ preceding: Object.freeze(preceding), inline: pa.inline }, "", right);
                 }
                 case parser.Direction.INFIX:
@@ -1223,9 +1222,14 @@ var ini;
                 default: {
                     const left = isText(ap) ? ap.text : "";
                     const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                    if (p.match(ini.EOL, l, s, pa))
+                        skipBlankLines(l, s, p, pa);
+                    // console.log(p.match(TEXT, l, s, pa));
+                    // console.log(yp);
+                    // console.log(rightExpr);
                     if (!(rightExpr instanceof Text))
                         throw new parser.ParseError("Could not parse whatever was after the section nesting operator");
-                    const right = isText(rightExpr) ? rightExpr.text : "";
+                    const right = rightExpr.text;
                     const preceding = pa.block;
                     pa.block = [];
                     //parse inline comments
@@ -1288,9 +1292,13 @@ var ini;
                 else
                     throw new parser.ParseError(`Unexpected value found`);
             }
-            //add this scope to the parent/global scope
-            ap.add(s, pa.section, scope);
-            return ap; //return the parent/global scope
+            // console.log(scope);
+            if (utility.isValid(ap)) {
+                //add this scope to the parent/global scope
+                ap.add(s, pa.section, scope);
+                return ap; //return the parent/global scope
+            }
+            return scope;
         }
     }
     /**SUB_SECTION (.), ASSIGNMENT (=) and COMMENT (;) are all parsed as text when inside a quote or double quotes */
@@ -1399,6 +1407,7 @@ var ini;
         parse(ap, yp, p, l, s, pa) {
             skipBlankLines(l, s, p, pa);
             pa.assigned = false;
+            // console.log(ap);
             // if(p.match(SECTION_START, l, s, pa)) return s.getCommand(parser.Direction.PREFIX, SECTION_START)!.parse(ap, p.consume(SECTION_START, l, s, pa) as Token, p, l, s, pa);
             return ap;
         }
@@ -1407,7 +1416,16 @@ var ini;
         parse(ap, yp, p, l, s, pa) {
             ap = new Section(emptyComment());
             while (!p.match(ini.EOF, l, s, pa)) {
-                p.parse(l, s, pa);
+                let exp = p.parse(l, s, pa);
+                if (!utility.isValid(exp)) { //a blank or comment line
+                    continue;
+                }
+                else if (exp instanceof Text) {
+                    exp = new KeyValue({ preceding: Object.freeze([...pa.block]), inline: pa.inline }, exp.text, "");
+                    pa.block = [];
+                    pa.inline = "";
+                }
+                ap.add(s, pa.section, exp);
             }
             return ap;
         }
@@ -1500,11 +1518,12 @@ var ini;
                     }
                     else
                         break;
-                    case DuplicateDirective.OVERWRITE: if (utility.isValid(section._map[name]))
-                        break;
+                    case DuplicateDirective.OVERWRITE: break;
                     case DuplicateDirective.DISCARD: if (utility.isValid(section._map[name]))
                         return;
-                    case DuplicateDirective.THROW:
+                    else
+                        break;
+                    case DuplicateDirective.THROW: throw new expression.ExpressionError("Duplicate not supported");
                 }
                 section._map[name] = value ?? new Section();
                 return;
@@ -1589,10 +1608,12 @@ var ini;
                             do {
                                 this._values.pop();
                             } while (this._values.length > 0);
-                        return;
+                        break;
                     }
                     case DuplicateDirective.DISCARD: if (this._values.length > 0)
                         return;
+                    else
+                        break;
                     case DuplicateDirective.THROW: if (this._values.length > 0)
                         throw Error("Duplicate not supported");
                 }
@@ -1729,7 +1750,7 @@ var ini;
             for (const key in data.map) {
                 if (data.map[key] instanceof Section) {
                     rv[key] = {};
-                    this._append(data.map[key], rv, s, p);
+                    this._append(data.map[key], rv[key], s, p);
                 }
                 else if (data.map[key] instanceof Property) {
                     const prop = data.map[key];
