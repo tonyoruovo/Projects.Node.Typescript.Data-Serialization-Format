@@ -151,7 +151,7 @@ var ini;
         _del = [':', '='];
         _dd = { section: DuplicateDirective.MERGE, property: DuplicateDirective.MERGE };
         _nes = { chars: ['.', '/'], relative: true };
-        _glo = "";
+        // private _glo: string = "";
         _esc = {
             char: "\\",
             quoted: true,
@@ -230,8 +230,8 @@ var ini;
                 throw new Error(`${s} is not unique. It is used as a delimeter`);
             if (utility.isValid(this._nes) && this._nes.chars.indexOf(s) >= 0)
                 throw new Error(`${s} is not unique. It is used as a nesting operator`);
-            if (this._glo === s)
-                throw new Error(`${s} is not unique. It is used as the keyword for the global section name`);
+            // if(this._glo === s)
+            // throw new Error(`${s} is not unique. It is used as the keyword for the global section name`); 
             if (utility.isValid(this._esc) && this._esc.unicode.indexOf(s) >= 0)
                 throw new Error(`${s} is not unique. It is used as a unicode prefix`);
             if (utility.isValid(this._esc) && this._esc.char === s)
@@ -246,6 +246,7 @@ var ini;
             this.addPrefixCommand(ini.QUOTE, new ParseText());
             this.addPrefixCommand(ini.SECTION_START, new ParseSection());
             this.addPrefixCommand(ini.WHITESPACE, new ParseSpace());
+            this.addPrefixCommand(ini.INIT, new Initializer());
             this.addInfixCommand(ini.COMMENT, new ParseComment(parser.Direction.INFIX));
             this.addInfixCommand(ini.ASSIGNMENT, new Assign(parser.Direction.INFIX));
             this.addInfixCommand(ini.EOL, new EndLine());
@@ -369,11 +370,11 @@ var ini;
             }
             return this;
         }
-        setGlobalName(g) {
-            this._ensureUniqueness(g);
-            this._glo = g;
-            return this;
-        }
+        // public setGlobalName(g: string) : SyntaxBuilder{
+        //     this._ensureUniqueness(g);
+        //     this._glo = g;
+        //     return this;
+        // }
         supportQuotedText(b) {
             try {
                 this._esc.quoted = b;
@@ -500,7 +501,7 @@ var ini;
             return this;
         }
         clear(toDefault = false) {
-            this._glo = "";
+            // this._glo = "";
             this._getCmd = (d, type) => {
                 switch (d) {
                     case parser.Direction.PREFIX:
@@ -584,7 +585,7 @@ var ini;
                 },
                 delimiters: Object.freeze(this._del),
                 nesting: utility.isValid(this._nes) ? { ...this._nes, chars: Object.freeze(this._nes.chars) } : undefined,
-                globalName: this._glo,
+                // globalName: this._glo,
                 duplicateDirective: this._dd,
                 escape: utility.isValid(this._esc) ? { ...this._esc, unicode: Object.freeze(this._esc.unicode) } : undefined,
                 parse: this._p,
@@ -597,7 +598,7 @@ var ini;
             this._esc = from.escape;
             this._nes = from.nesting;
             this._del = from.delimiters;
-            this._glo = from.globalName;
+            // this._glo = from.globalName;
             this._dd = from.duplicateDirective;
             this._p = from.parse;
             this._getCmd = from.getCommand;
@@ -666,6 +667,7 @@ var ini;
     ini.ESCAPE = new Type("11", 5);
     ini.ESCAPED = new Type("12", 5);
     ini.WHITESPACE = new Type("13", 5);
+    ini.INIT = new Type("14", Number.MAX_SAFE_INTEGER);
     class Token {
         value;
         type;
@@ -703,7 +705,7 @@ var ini;
         _i = 0;
         _canProcess = true;
         constructor() {
-            this._queue = Array();
+            this._queue = Array(new Token("", ini.INIT, -1, -1, -1));
         }
         _processEscapables(text, s) {
             if (!utility.isValid(s.escape))
@@ -727,36 +729,36 @@ var ini;
             if (json.isAtomic(o)) {
                 if (name.length > 0) {
                     do {
-                        this.#manufacture(name.shift(), s.globalName);
+                        this.#manufacture(name.shift());
                     } while (name.length > 0);
-                    this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++), s.globalName);
-                    this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                    this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++));
+                    this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                 }
-                this.#manufacture(new Token(this._processEscapables(o !== null ? String(o) : "", s), ini.TEXT, 0, 0, this._i++), s.globalName);
+                this.#manufacture(new Token(this._processEscapables(o !== null ? String(o) : "", s), ini.TEXT, 0, 0, this._i++));
             }
             else if (Array.isArray(o)) {
                 for (let i = 0; i < o.length; i++) {
                     if (json.isAtomic(o[i])) {
                         if (name.length > 0) {
                             do {
-                                this.#manufacture(name.shift(), s.globalName);
+                                this.#manufacture(name.shift());
                             } while (name.length > 0);
-                            this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
-                        this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token(this._processEscapables(String(o[i] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[i] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                     }
                     else if (Array.isArray(o[i])) {
                         let array = o[i];
                         if (json.arrayIsAtomic(array))
                             for (let j = 0; j < array.length; j++) {
-                                this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token(this._processEscapables(String(array[j] ?? ""), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                                this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++));
+                                this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                                this.#manufacture(new Token(this._processEscapables(String(array[j] ?? ""), s), ini.TEXT, 0, 0, this._i++));
+                                this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                             }
                         else if (utility.isValid(s.nesting)) {
                             if (name.length < 1)
@@ -767,10 +769,10 @@ var ini;
                             this._process(o[i], s, name);
                         }
                         else {
-                            this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
                     }
                     else if (typeof o[i] === "object") {
@@ -783,10 +785,10 @@ var ini;
                             this._process(o[i], s, name);
                         }
                         else {
-                            this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(i.toString(), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
                     }
                 }
@@ -796,23 +798,23 @@ var ini;
                     if (json.isAtomic(o[key])) {
                         if (name.length > 0) {
                             do {
-                                this.#manufacture(name.shift(), s.globalName);
+                                this.#manufacture(name.shift());
                             } while (name.length > 0);
-                            this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token("]", ini.SECTION_END, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
-                        this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token(this._processEscapables(String(o[key] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                        this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                        this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token(this._processEscapables(String(o[key] ?? ""), s), ini.ASSIGNMENT, 0, 0, this._i++));
+                        this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                     }
                     else if (Array.isArray(o[key])) {
                         if (json.arrayIsAtomic(o[key]))
                             for (let j = 0; j < o[key].length; j++) {
-                                this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token(this._processEscapables(String(o[key][j] ?? ""), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                                this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                                this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++));
+                                this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                                this.#manufacture(new Token(this._processEscapables(String(o[key][j] ?? ""), s), ini.TEXT, 0, 0, this._i++));
+                                this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                             }
                         else if (utility.isValid(s.nesting)) {
                             if (name.length < 1)
@@ -823,10 +825,10 @@ var ini;
                             this._process(o[key], s, name);
                         }
                         else {
-                            this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
                     }
                     else if (typeof o[key] === "object") {
@@ -839,22 +841,16 @@ var ini;
                             this._process(o[key], s, name);
                         }
                         else {
-                            this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), ini.TEXT, 0, 0, this._i++), s.globalName);
-                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), s.globalName);
+                            this.#manufacture(new Token(this._processEscapables(key, s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.delimiters[0], ini.ASSIGNMENT, 0, 0, this._i++));
+                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), ini.TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
                         }
                     }
                 }
             }
         }
-        #manufacture(t, g) {
-            if (this.canProcess()) { //writes a global section as a metadata
-                this._queue.push(new Token("[", ini.SECTION_START, -1, -1, 0));
-                this._queue.push(new Token(g, ini.TEXT, -1, -1, 1));
-                this._queue.push(new Token("]", ini.SECTION_END, -1, -1, 2));
-                this._queue.push(new Token("\n", ini.EOL, -1, -1, 3));
-            }
+        #manufacture(t) {
             this._queue.push(t);
             this._canProcess = false;
         }
@@ -866,22 +862,22 @@ var ini;
         process(chunk, syntax, p) {
             this.src = chunk;
             if (chunk === null)
-                this.#manufacture(new Token("", ini.TEXT, 0, 0, this._i++), syntax.globalName);
+                this.#manufacture(new Token("", ini.TEXT, 0, 0, this._i++));
             else if (typeof chunk === "boolean")
-                this.#manufacture(new Token(chunk ? "true" : "false", ini.TEXT, 0, 0, this._i++), syntax.globalName);
+                this.#manufacture(new Token(chunk ? "true" : "false", ini.TEXT, 0, 0, this._i++));
             else if (typeof chunk === "number")
-                this.#manufacture(new Token(String(chunk), ini.TEXT, 0, 0, this._i++), syntax.globalName);
+                this.#manufacture(new Token(String(chunk), ini.TEXT, 0, 0, this._i++));
             else if (typeof chunk === "string")
-                this.#manufacture(new Token(chunk, ini.TEXT, 0, 0, this._i++), syntax.globalName);
+                this.#manufacture(new Token(chunk, ini.TEXT, 0, 0, this._i++));
             else if (typeof chunk === "object") {
                 const array = Array();
                 this._process(chunk, syntax, array);
                 if (array.length > 0)
                     do {
-                        this.#manufacture(array.shift(), syntax.globalName);
+                        this.#manufacture(array.shift());
                     } while (array.length > 0);
             }
-            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++), syntax.globalName);
+            this.#manufacture(new Token("\n", ini.EOL, 0, 0, this._i++));
         }
         processed = () => this._queue;
         unprocessed = () => this.src;
@@ -948,7 +944,7 @@ var ini;
         constructor() {
             this.#ln = 0;
             this.#li = 0;
-            this.#queue = [];
+            this.#queue = [new Token("", ini.INIT, -1, -1, -1)];
             this.src = "";
             this.#esc = 0;
             this.#text = "";
@@ -968,13 +964,7 @@ var ini;
             this.src = this.src.substring(distance);
             return rv;
         }
-        #manufacture(t, g) {
-            if (this.#isStart()) { //writes a global section as a metadata
-                this.#queue.push(new Token("[", ini.SECTION_START, -1, -1, 0));
-                this.#queue.push(new Token(g, ini.TEXT, -1, -1, 1));
-                this.#queue.push(new Token("]", ini.SECTION_END, -1, -1, 2));
-                this.#queue.push(new Token("\n", ini.EOL, -1, -1, 3));
-            }
+        #manufacture(t) {
             this.#queue.push(t);
         }
         end(syntax, params) {
@@ -992,7 +982,7 @@ var ini;
                     if (this.#escText.length === 0) {
                         this.#escText += token;
                         if (!syntax.escape.unicode.indexOf(this.#escText[0])) {
-                            this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li), syntax.globalName);
+                            this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
                         }
@@ -1000,13 +990,13 @@ var ini;
                     else if (/[A-Fa-f0-9]/.test(token)) {
                         this.#escText += token;
                         if (this.#escText.length === 4) {
-                            this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li), syntax.globalName);
+                            this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
                         }
                     }
                     else {
-                        this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li), syntax.globalName);
+                        this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li));
                         this.#escText = "";
                         this.#esc = 0;
                         this.#text += token;
@@ -1017,27 +1007,27 @@ var ini;
                     if (!syntax.escape.unicode.indexOf(this.#escText[0])) {
                     }
                     else if (!/[A-Fa-f0-9]/.test(token)) {
-                        this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li), syntax.globalName);
+                        this.#manufacture(new Token(this.#escText, ini.ESCAPED, this.#ln, this.#ln, this.#li));
                         this.#escText = "";
                         this.#esc = 0;
                     }
                 }
                 else if (token === this.#eol) {
                     if (this.#com.length > 0) {
-                        this.#manufacture(new Token(this.#com, ini.COMMENT, this.#ln, this.#ln, this.#li - this.#com.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#com, ini.COMMENT, this.#ln, this.#ln, this.#li - this.#com.length));
                         this.#com = "";
                     }
                     else if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.EOL, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.EOL, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (syntax.comments.chars.indexOf(token) > -1 || this.#com.length > 0) {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#com += token;
@@ -1045,74 +1035,74 @@ var ini;
                 else if (utility.isValid(syntax.escape) && syntax.escape.char === token) { //an escape character?
                     this.#esc++;
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.ESCAPE, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.ESCAPE, this.#ln, this.#ln, this.#li - token.length));
                 }
                 else if (token === '[') {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.SECTION_START, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.SECTION_START, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (token === ']') {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.SECTION_END, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.SECTION_END, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (token === "'" && utility.isValid(syntax.escape) && syntax.escape.quoted) {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, this.#qt ? ini.QUOTE_END : ini.QUOTE, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, this.#qt ? ini.QUOTE_END : ini.QUOTE, this.#ln, this.#ln, this.#li - token.length));
                     this.#qt = !this.#qt;
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (token === '"' && utility.isValid(syntax.escape) && syntax.escape.quoted) {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, this.#qt ? ini.D_QUOTE_END : ini.D_QUOTE, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, this.#qt ? ini.D_QUOTE_END : ini.D_QUOTE, this.#ln, this.#ln, this.#li - token.length));
                     this.#qt = !this.#qt;
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (utility.isValid(syntax.nesting) && syntax.nesting.chars.indexOf(token) > -1) {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.SUB_SECTION, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.SUB_SECTION, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (syntax.delimiters.indexOf(token) > -1) {
                     if (this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        this.#manufacture(new Token(this.#text, ini.TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, ini.ASSIGNMENT, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                    this.#manufacture(new Token(token, ini.ASSIGNMENT, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
                 }
                 else if (utility.isWhitespace(token)) {
                     if (this.#text.length > 0) {
-                        // this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length), syntax.globalName);
+                        // this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text += token;
                     }
                     else {
-                        this.#manufacture(new Token(token, ini.WHITESPACE, this.#ln, this.#ln, this.#li - token.length), syntax.globalName);
+                        this.#manufacture(new Token(token, ini.WHITESPACE, this.#ln, this.#ln, this.#li - token.length));
                         this.#escText = "";
                         this.#esc = 0;
                     }
@@ -1247,7 +1237,6 @@ var ini;
     }
     class ParseSection {
         parse(ap, yp, p, l, s, pa) {
-            ap ??= new Section(emptyComment());
             pa.insideSecName = true;
             //create the section name
             if (utility.isValid(s.nesting) && s.nesting.relative && p.match(ini.SUB_SECTION, l, s, pa)) {
@@ -1411,6 +1400,15 @@ var ini;
             skipBlankLines(l, s, p, pa);
             pa.assigned = false;
             // if(p.match(SECTION_START, l, s, pa)) return s.getCommand(parser.Direction.PREFIX, SECTION_START)!.parse(ap, p.consume(SECTION_START, l, s, pa) as Token, p, l, s, pa);
+            return ap;
+        }
+    }
+    class Initializer {
+        parse(ap, yp, p, l, s, pa) {
+            ap = new Section(emptyComment());
+            while (!p.match(ini.EOF, l, s, pa)) {
+                p.parse(l, s, pa);
+            }
             return ap;
         }
     }
@@ -1761,13 +1759,12 @@ var ini;
                     this.append(data.values[i], s, p);
                 }
             } else */ if (data instanceof Section) {
-                const keys = Object.keys(data.map);
-                if (!utility.isValid(this._data)) {
+                // const keys = Object.keys(data.map);
+                if (!utility.isValid(this._data)) //{
                     this._data = {};
-                    this._append(data.map[s.globalName], this._data, s, p);
-                }
-                else
-                    this._append(data, this._data, s, p);
+                //     this._append(data.map[s!.globalName] as Section, this._data, s, p);
+                // } else
+                this._append(data, this._data, s, p);
             } /* else if(data instanceof Text) {
                 this._data[data.text] = null;
                 this.modifications++;

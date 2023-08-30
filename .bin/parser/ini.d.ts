@@ -76,7 +76,6 @@ declare namespace ini {
         private _del;
         private _dd;
         private _nes?;
-        private _glo;
         private _esc?;
         private _md;
         private _p;
@@ -110,7 +109,6 @@ declare namespace ini {
         supportNonQuotedEscape(b: boolean): SyntaxBuilder;
         supportInline(b: boolean): SyntaxBuilder;
         supportRelativeNesting(b: boolean): SyntaxBuilder;
-        setGlobalName(g: string): SyntaxBuilder;
         supportQuotedText(b: boolean): SyntaxBuilder;
         setEscapeChar(char: string): SyntaxBuilder;
         setEscapeParser(p: (e: string) => string): SyntaxBuilder;
@@ -245,7 +243,6 @@ declare namespace ini {
          * @type {string}
          * @readonly
          */
-        readonly globalName: string;
         /**An object that specifies how escaped sequences are parsed. If `undefined` or `null`, then no escape will be supported */
         readonly escape?: {
             /**
@@ -362,6 +359,7 @@ declare namespace ini {
     export const ESCAPE: parser.GType<string>;
     export const ESCAPED: parser.GType<string>;
     export const WHITESPACE: parser.GType<string>;
+    export const INIT: parser.GType<string>;
     class Token implements parser.GToken<string> {
         readonly value: string;
         readonly type: Type;
