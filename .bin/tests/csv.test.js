@@ -19,22 +19,15 @@ rs.pipe(new csv.Converter({
     writableObjectMode: false,
     readableObjectMode: true,
 }, new csv.StringLexer(), csvParser, csvSyntax, csvParams)).pipe(new json.Converter(csvSyntax, csvParams, new csv.JSFormat()))
-    // .pipe(new ini.Converter({
-    //   writableObjectMode: true,
-    //   readableObjectMode: true,
-    // }, iniJSONLexer, iniParser, iniSyntax, iniParams))
+    .pipe(new ini.Converter({
+    writableObjectMode: true,
+    readableObjectMode: true,
+}, iniJSONLexer, iniParser, iniSyntax, iniParams))
     .on("data", (chunk) => {
-    //   (chunk as ini.Expression).format(iniJsFormat, iniSyntax, iniParams);
-    iniJSONLexer.process(chunk, iniSyntax, iniParams);
-    // console.table(iniJSONLexer.processed());
-    const e = iniParser.parse(iniJSONLexer, iniSyntax, iniParams);
-    // console.log((e as any)['map']['0']);
-    // console.log((e as any)['map']);
-    e.format(iniJsFormat, iniSyntax, iniParams);
+    chunk.format(iniJsFormat, iniSyntax, iniParams);
+    // e.format(iniJsFormat, iniSyntax, iniParams);
 })
     .on("end", () => {
-    // process.stdout.write(format.data());
-    // console.table(params.header);
     console.log(iniJsFormat.data());
 });
 // const data = [{

@@ -1014,14 +1014,14 @@ namespace utility {
   }
  /**
    * Performs backward recursion from the given `current` and returns the path to the first folder where a `package.json` exists.
-   * @params { string } currentDir the directory from which path traversal begins.
+   * @param { string } start the directory from which path traversal begins.
    * @returns {string} the path to the folder where the first `package.json` file was found
    */
-  export function rootFolder(currentDir = dirname) {
-    while(!existsSync(join(currentDir, 'package.json'))) {
-      currentDir = join(currentDir, '..');
+  export function rootFolder(start: string = dirname): string {
+    while(!existsSync(join(start, 'package.json'))) {
+      start = join(start, '..');
     }
-    return currentDir
+    return start;
   }
 }
 

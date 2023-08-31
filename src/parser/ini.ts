@@ -1868,6 +1868,7 @@ namespace ini {
           }
           try {
             this.lexer.process(chunk, this.syntax, this.params);
+            callback();
           } catch (e) {
             return callback(e as Error);
           }
@@ -1876,7 +1877,8 @@ namespace ini {
           this.lexer.end(this.syntax, this.params);
           if (this.lexer.hasTokens()) {
             try {
-              return callback(null, this.parser.parse(this.lexer, this.syntax, this.params));
+                const e = this.parser.parse(this.lexer, this.syntax, this.params);
+              return callback(null, e);
             } catch (e) {
               return callback(e as Error);
             }

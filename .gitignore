@@ -1,4 +1,5 @@
 */package-lock.json
+.bin/
 .bin/*
 .bin/*/*
 # Logs

@@ -460,9 +460,9 @@ declare namespace utility {
     function escSRCh(str: string): string;
     /**
       * Performs backward recursion from the given `current` and returns the path to the first folder where a `package.json` exists.
-      * @params { string } currentDir the directory from which path traversal begins.
+      * @param { string } start the directory from which path traversal begins.
       * @returns {string} the path to the folder where the first `package.json` file was found
       */
-    function rootFolder(currentDir?: string): string;
+    function rootFolder(start?: string): string;
 }
 export default utility;

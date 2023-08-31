@@ -1,0 +1,1 @@
+## Folder for manual tests done on the namespaces
