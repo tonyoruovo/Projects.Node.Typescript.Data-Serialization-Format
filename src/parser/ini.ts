@@ -68,19 +68,46 @@ namespace ini {
         DISCARD = 2,
         /**A directive for the parser to throw if a duplicate property is found */
         THROW = 3
-    } 
+    }
+    function processEscapables(text: string, s: Syntax, f: Format): string {
+        if(!utility.isValid(s.escape)) return text;
+        let val = "";
+        let isQuotable = false;
+        for (let i = 0; i < text.length; i++) {
+            let isEscapable;
+            if(!Array.isArray(s.escape!.isSpecial)) isEscapable = (s.escape!.isSpecial as ((e: string) => boolean))(text[i]);
+            else isEscapable = s.escape!.isSpecial.indexOf(text[i]) >= 0;
+            if(isEscapable) {
+                // f.logger!.info(`isEscapable: ${text[i]} --> ${isEscapable}`);
+                const escaped = `${s.escape!.char}${text[i]}`;
+                if(s.escape!.quoted) {isQuotable = true; val += escaped;}
+                else if(s.escape!.nonQuotedEsc) val += escaped;
+                else if(utility.isValid(f.logger)) {
+                    f.logger!.warn(`The character '${text[i]}' in string "${text}" needs to be escaped but it's not because the syntax does not support escaping special characters. When it is parsed from this format, an error will be thrown`);
+                    val += text[i];
+                }
+            } else {
+                val += text[i];
+            }
+        }
+        return isQuotable ? `"${val}"` : val;
+    }
     /**
-     * Does the same function as {@link Format.append}.
+     * Does the same function as {@link Format.append `Format.append`}.
      */
     function append(f: Format<any>, data: Section, s?: Syntax, p?: Params, name = "") {
+        let coverSecName = false;
         for (const key in data.map) {
-            if (data.map[key] instanceof Section)
-            append(f, data.map[key] as Section, s, p, name.length > 0 ? `${name}.${key}` : "");
-            else if (data.map[key] instanceof Property){
-                f.append(`${name}]`, s, p);
-                f.append(`${data.comments.inline && data.comments.inline.length > 0 ? data.comments.inline : ""}\n` ? "]" : "", s, p);
+            if (data.map[key] instanceof Section){
+                // f.append('\n', s, p);
+                append(f, data.map[key] as Section, s, p, name.length > 0 ? `${name}.${processEscapables(key, s!, f)}` : `\n[${processEscapables(key, s!, f)}`);
+            } else if (data.map[key] instanceof Property){
+                if(name.length > 0 && !coverSecName) {f.append(`${name}]`, s, p); f.append("\n", s, p); coverSecName = true;}
+                if(data.comments.inline && data.comments.inline.length > 0)
+                f.append(`${data.comments.inline}\n`, s, p);
                 f.append((data.map[key] as Property), s, p);
             } else throw new expression.ExpressionError(`Illegal value found at ${name}.${key}`);
+            // f.append('\n', s, p);
         }
     }
     function unwrapComments(comments: { preceding: readonly string[] }, s?: Syntax) {
@@ -133,12 +160,16 @@ namespace ini {
         private _dd = {section: DuplicateDirective.MERGE, property: DuplicateDirective.MERGE};
         private _nes?: {chars: string[], relative: boolean} = {chars: ['.', '/'], relative: true};
         // private _glo: string = "";
-        private _esc?: {quoted: boolean, nonQuotedEsc: boolean, unicode: string[], char: string, parse(e: string): string}
+        private _isSpecial = (s: string) => {
+            return ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || (utility.isValid(this._esc) && this._esc!.char === s);
+        }
+        private _esc?: {quoted: boolean, nonQuotedEsc: boolean, unicode: string[], char: string, isSpecial: (((s: string) => boolean) | string[]), parse(e: string): string}
             = {
                 char: "\\",
                 quoted: true,
                 nonQuotedEsc: false,
                 unicode: ['x', 'u'],
+                isSpecial: this._isSpecial,
                 parse(e: string) {
                     let esc = e[1];
                     switch(e){
@@ -209,8 +240,8 @@ namespace ini {
             throw new Error(`${s} is not unique. It is used as a delimeter`); 
             if(utility.isValid(this._nes) && this._nes!.chars.indexOf(s) >= 0)
             throw new Error(`${s} is not unique. It is used as a nesting operator`); 
-            // if(this._glo === s)
-            // throw new Error(`${s} is not unique. It is used as the keyword for the global section name`); 
+            if(utility.isValid(this._esc)) if(Array.isArray(this._esc!.isSpecial) && this._esc!.isSpecial.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is a special character`); 
             if(utility.isValid(this._esc) && this._esc!.unicode.indexOf(s) >= 0)
             throw new Error(`${s} is not unique. It is used as a unicode prefix`); 
             if(utility.isValid(this._esc) && this._esc!.char === s)
@@ -451,6 +482,21 @@ namespace ini {
           this._md.standard = standard??this._md.standard;
           return this;
         }
+        /**
+         * Sets the {@link Syntax.esc.isSpecial isSpecial property} in the syntax to be built.
+         * @remark
+         * The default is a function that returns `true` if the argument is the comment character, a delimiter, the escape character or is one of the following: `'\r'`, `'\n'`, `'['`, `']'`, `'\''`, `'"'`.
+         * @param {string[] | ((e: string) => boolean)} s an array of special characters or a function which returns `true` if a special character is the argument
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         */
+        public setIsSpecial(s: string[] | ((e: string) => boolean)): SyntaxBuilder {
+            try {
+                this._esc!.isSpecial = s;
+            } catch (e) {
+                throw Error("Escape object is undefined for this builder");
+            }
+            return this;
+        }
         public clear(toDefault = false): SyntaxBuilder {
             // this._glo = "";
             this._getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
@@ -480,6 +526,7 @@ namespace ini {
                     quoted: true,
                     nonQuotedEsc: false,
                     unicode: ['x', 'u'],
+                    isSpecial: this._isSpecial,
                     parse(e: string) {
                         let esc = e[1];
                         switch(e){
@@ -534,7 +581,6 @@ namespace ini {
                 },
                 delimiters: Object.freeze(this._del),
                 nesting: utility.isValid(this._nes) ? {...this._nes!, chars: Object.freeze(this._nes!.chars)} : undefined,
-                // globalName: this._glo,
                 duplicateDirective: this._dd,
                 escape: utility.isValid(this._esc) ? {...this._esc!, unicode: Object.freeze(this._esc!.unicode)} : undefined,
                 parse: this._p,
@@ -590,9 +636,10 @@ namespace ini {
         /**Specifies how the parser will handle sections and properties with duplicate names*/
         readonly duplicateDirective: {
             /**For duplicate section names*/
-            section: DuplicateDirective,
-            /**FOr duplicate property names */
-            property: DuplicateDirective};
+            readonly section: DuplicateDirective,
+            /**For duplicate property names */
+            readonly property: DuplicateDirective
+        };
         /**
          * The characters used for delimiting a name from it's value within a property. As an example, most ini file use:
          * ```ini
@@ -685,6 +732,12 @@ namespace ini {
              * @readonly
              */
             readonly char: string,
+            /**
+             * An array of strings where each character must be escaped for it to be used in a text especially none-quoted text. This can also be a function where the argument returns `true` if it must be escaped in a text
+             * @type {string}
+             * @readonly
+             */
+            readonly isSpecial: readonly string[] | ((e: string) => boolean);
             /**
              * Parses the 2-length string (and if the `unicode` property has at least 1 element, parses unicode escapes as well such as `\x20`) and returns an appropriate string for an escaped character
              * @param esc a 2-length string given as the escape character, and the character it escapes
@@ -808,18 +861,25 @@ namespace ini {
         constructor(){
             this._queue = Array<Token>(new Token("", INIT, -1, -1, -1));
         }
-        private _processEscapables(text: string, s: Syntax): string {
+        /*We should only process escapables for output format and not for input parsing because it is in internal form and the parser does not care about escapes when a string is in memory*/
+        /*private _processEscapables(text: string, s: Syntax): string {
             if(!utility.isValid(s.escape)) return text;
             let val = "";
             let isQuotable = false;
             for (let i = 0; i < text.length; i++) {
+                const isEscapable = Array.isArray(s.escape!.isSpecial) ? s.escape!.isSpecial.indexOf(text[i]) >= 0 : (s.escape!.isSpecial as ((e: string) => boolean))(text[i]);
+                if(isEscapable) {
+                    const escaped = s.escape!.parse(`${s.escape!.char}${text[i]}`);
+                    if(s.escape!.quoted) isQuotable = true;
+                    else 
+                }
                 const escaped = s.escape!.parse(`${s.escape!.char}${text[i]}`);
                 if(escaped.length > 1 && escaped[0] === s.escape!.char) val += escaped.substring(1);
                 else if(s.escape!.quoted) {val += escaped; isQuotable = true; }
                 else throw new parser.ParseError(`Cannot have escapable characters in an unquoted text at: ${this._i}`);
             }
             return isQuotable ? `"${val}"` : val;
-        }
+        }*/
         private _process(o: json.Value, s: Syntax, name = Array<Token>()) {
             if(json.isAtomic(o)) {
                 if(name.length > 0) {
@@ -829,7 +889,7 @@ namespace ini {
                     this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++));
                     this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                 }
-                this.#manufacture(new Token(this._processEscapables(o !== null ? String(o) : "", s), TEXT, 0, 0, this._i++));
+                this.#manufacture(new Token(o !== null ? String(o) : "", TEXT, 0, 0, this._i++));
             } else if(Array.isArray(o)) {
                 for (let i = 0; i < o.length; i++) {
                     if(json.isAtomic(o[i])) {
@@ -842,14 +902,14 @@ namespace ini {
                         }
                         this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[i]??""), s), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(String(o[i]??""), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[i])) {
                         let array = o[i] as any[];
                         if(json.arrayIsAtomic(array)) for(let j = 0; j < array.length; j++) {
                             this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(String(array[j]??""), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(String(array[j]??""), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         } else if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
@@ -859,7 +919,7 @@ namespace ini {
                         } else {
                             this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[i]), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     } else if(typeof o[i] === "object") {
@@ -871,7 +931,7 @@ namespace ini {
                         } else {
                             this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[i]), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[i]), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     }
@@ -886,37 +946,37 @@ namespace ini {
                             this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
-                        this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(this._processEscapables(String(o[key]??""), s), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(String(o[key]??""), TEXT, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[key])) {
                         if(json.arrayIsAtomic(o[key] as any[])) for(let j = 0; j < (o[key] as any[]).length; j++) {
-                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(String((o[key] as any[])[j]??""), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(String((o[key] as any[])[j]??""), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         } else if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            name.push(new Token(key, TEXT, 0, 0, this._i++));
                             this._process((o[key] as any[]), s, name);
                         } else {
-                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[key]), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     } else if(typeof o[key] === "object") {
                         if(utility.isValid(s.nesting)) {
                             if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            name.push(new Token(key, TEXT, 0, 0, this._i++));
                             this._process(o[key], s, name);
                         } else {
-                            this.#manufacture(new Token(this._processEscapables(key, s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(this._processEscapables(JSON.stringify(o[key]), s), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[key]), TEXT, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     }
@@ -1680,21 +1740,53 @@ namespace ini {
       append(data: Appendage, s?: Syntax, p?: Params): void;
     }
     export class StringFormat implements Format<string> {
+        public readonly logger;
         private _data = "";
+        constructor() {
+            //Some classic js code
+            this.logger = console as any as utility.Messenger;
+            /* We will be using 0x7 because it is the smallest value that has all 3 msb on. */
+            (this.logger as any)._bit = 0x0;//the msb is error, the mid bit is warn and the lsb is info
+            this.logger.seal = l => {
+                if(this.logger.isSealed(l)) return;
+                if(l === 0) {
+                    ((this.logger as any)._bit as number) = 0x1 & ((this.logger as any)._bit as number);
+                    this.logger.error = m => {throw Error("Sealed")}
+                } else if(l === 1) {
+                    ((this.logger as any)._bit as number) = 0x2 & ((this.logger as any)._bit as number);
+                    this.logger.info = m => {throw Error("Sealed")}
+                } else if(l === 2) {
+                    ((this.logger as any)._bit as number) = 0x4 & ((this.logger as any)._bit as number);
+                    this.logger.warn = m => {throw Error("Sealed")}
+                }
+            };
+            this.logger.isSealed = l => {
+                if(l === 0) {
+                    return (0x1 & ((this.logger as any)._bit as number)) !== 0;
+                } else if(l === 1) {
+                    return (0x2 & ((this.logger as any)._bit as number)) !== 0;
+                } else if(l === 2) {
+                    return (0x4 & ((this.logger as any)._bit as number)) !== 0;
+                }
+                return false;
+            };
+        }
         append(data: Appendage, s?: Syntax | undefined, p?: Params | undefined): void {
             if(typeof data === "string"){
                 this._data +=  data;
                 this.modifications++;
             } else if(data instanceof KeyValue) {
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
-                this.append(`${data.key} ${s!.delimiters[0]} ${data.value}`, s, p);
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+                this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 for (let i = 0; i < data.values.length; i++) {
                     this.append(data.values[i], s, p);
+                    if(i < data.values.length - 1) this.append("\n", s, p);
                 }
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+                this.append("\n", s, p);
+                // this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
             } else if(data instanceof Section){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 append(this, data, s, p);
@@ -1704,6 +1796,9 @@ namespace ini {
             } else throw new expression.FormatError("format not supported");
         }
         data(): string {
+            this.logger.seal(0);
+            this.logger.seal(1);
+            this.logger.seal(2);
             return this._data;
         }
         reverse(): this {
@@ -1794,6 +1889,7 @@ namespace ini {
         }
     }
     export class FileFormat implements Format<ReadStream> {
+        public readonly logger;
         private _str: WriteStream;
         constructor(filename: string){
             this._str = createWriteStream(filename, {
@@ -1801,8 +1897,38 @@ namespace ini {
                 emitClose: false,
                 encoding: "utf-8"
             });
+            //Some classic js code
+            this.logger = console as any as utility.Messenger;
+            // (this.logger as any)._bitMask = 0x7;//because it is the smallest value that has all 3 msb on.
+            (this.logger as any)._bit = 0x0;//the msb is error, the mid bit is warn and the lsb is info
+            this.logger.seal = l => {
+                if(this.logger.isSealed(l)) return;
+                if(l === 0) {
+                    ((this.logger as any)._bit as number) = 0x1 & ((this.logger as any)._bit as number);
+                    this.logger.error = m => {throw Error("Sealed")}
+                } else if(l === 1) {
+                    ((this.logger as any)._bit as number) = 0x2 & ((this.logger as any)._bit as number);
+                    this.logger.info = m => {throw Error("Sealed")}
+                } else if(l === 2) {
+                    ((this.logger as any)._bit as number) = 0x4 & ((this.logger as any)._bit as number);
+                    this.logger.warn = m => {throw Error("Sealed")}
+                }
+            };
+            this.logger.isSealed = l => {
+                if(l === 0) {
+                    return (0x1 & ((this.logger as any)._bit as number)) !== 0;
+                } else if(l === 1) {
+                    return (0x2 & ((this.logger as any)._bit as number)) !== 0;
+                } else if(l === 2) {
+                    return (0x4 & ((this.logger as any)._bit as number)) !== 0;
+                }
+                return false;
+            };
         }
         public endWrite() {
+            this.logger.seal(0);
+            this.logger.seal(1);
+            this.logger.seal(2);
           this._str!.end();
           this._str!.close();
         }
@@ -1812,24 +1938,28 @@ namespace ini {
                 this.modifications++;
             } else if(data instanceof KeyValue) {
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
-                this.append(`${data.key} ${s!.delimiters[0]} ${data.value}`, s, p);
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+                this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 for (let i = 0; i < data.values.length; i++) {
                     this.append(data.values[i], s, p);
+                    if(i < data.values.length - 1) this.append("\n", s, p);
                 }
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
+                this.append("\n", s, p);
+                // this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
             } else if(data instanceof Section){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 append(this, data, s, p);
             } else if(data instanceof Text) {
                 this._str.write(data.text);
                 this.modifications++;
-            }
-            else throw new expression.FormatError("format not supported");
+            } else throw new expression.FormatError("format not supported");
         }
         data(): ReadStream {
+            this.logger.seal(0);
+            this.logger.seal(1);
+            this.logger.seal(2);
             return createReadStream(this._str.path, {
               autoClose: true,
               encoding: "utf-8"
