@@ -1,20 +1,20 @@
 */package-lock.json
 
-.bin/
+*/.bin/
 
-.bin/*
+*/.bin/*
 
-.bin/*/*
+*/.bin/*/*
 
-./.bin/
+*/./.bin/
 
-./.bin/*
+*/./.bin/*
 
-./.bin/*/**
+*/./.bin/*/**
 
-./.bin/parser
+*/./.bin/parser
 
-./.bin/tests
+*/./.bin/tests
 
 # Logs
 logs
