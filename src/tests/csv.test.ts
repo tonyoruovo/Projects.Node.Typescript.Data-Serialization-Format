@@ -4,17 +4,18 @@ import json from "../parser/json.js";
 import ini from "../parser/ini.js";
 import utility from "../utility.js";
 
-const path = `${utility.rootFolder()}/data/csv/test.csv`;
+const path = `${utility.rootFolder()}/data/csv/test2.csv`;
 // lexer test
 const rs = createReadStream(path);
 // rs.pipe(process.stdout);
 const csvSyntax = csv.RFC_4180;
 const csvParams = new csv.Params();
 const csvParser = new csv.Parser();
-const iniFormat = new ini.StringFormat();
 const iniSyntax = ini.UNIX;
 const iniParams = new ini.Params();
 const iniParser = new ini.Parser();
+const iniFormat = new ini.StringFormat();
+const iniJsFormat = new ini.JSFormat();
 const iniJSONLexer = new ini.JSONLexer();
 rs.pipe(new csv.Converter(
   {
@@ -32,9 +33,10 @@ rs.pipe(new csv.Converter(
 }, iniJSONLexer, iniParser, iniSyntax, iniParams))
 .on("data", (chunk) => {
     (chunk as ini.Expression).format(iniFormat, iniSyntax, iniParams);
-  // e.format(iniJsFormat, iniSyntax, iniParams);
+    (chunk as ini.Expression).format(iniJsFormat, iniSyntax, iniParams);
   })
   .on("end", () => {
+    console.log(iniJsFormat.data());
     console.log(iniFormat.data());
   });
 // const data = [{
