@@ -7,6 +7,46 @@ import parser from "./parser.js";
 namespace expression {
   const isValid = util.isValid;
   /**
+   * Provided by a {@link Format formatter} to create specialized formats with the intention of increasing the readbility of the format.
+   */
+  export type Prettyfier = {
+    /**
+     * The value that represnts the whitespace character `\t`.
+     * @type {string}
+     * @readonly
+     */
+    readonly tab: string;
+    /**
+     * The value that represnts the whitespace character `\x20`.
+     * @type {string}
+     * @readonly
+     */
+    readonly space: string;
+    /**
+     * The value that represnts the whitespace character `\n` (`\r\n` in DOS).
+     * @type {string}
+     * @readonly
+     */
+    readonly newLine: string;
+  };
+  /**
+   * Provided by a {@link Format formatter} to create a format that is reduced to only the essential characters
+   */
+  export type Minifier = {
+    /**
+     * A flag for allowing comments
+     * @type {boolean}
+     * @readonly
+     */
+    readonly retainComments: boolean;
+    /**
+     * The maximum number of lines a minified format can have
+     * @type {boolean}
+     * @readonly
+     */
+    readonly maxNumOfLines: number;
+  };
+  /**
    * Thrown when an error is detected in the {@link Expression}
    * interface
    */
@@ -260,7 +300,7 @@ namespace expression {
    * \
    * Implementors of this interface may throw a {@link FormatError}
    * on any method if an incompatible data is attempted to be
-   * formatted by a user.
+   * formatted by a user. Loggers, prettyfiers and minifiers may be provided however, their implementation is limited in this version and very experimental.
    */
   export interface Format extends util.Equalizer, util.Hashable {
     /**
@@ -298,6 +338,25 @@ namespace expression {
      * @readonly
      */
     readonly bpn: number;
+
+    /**
+     * A {@link Prettyfier prettyfier} provided by formats that support string streaming such as file formats and string formats.
+     * @type {Prettyfier}
+     * @readonly
+     */
+    readonly prettyfier?: Prettyfier;
+    /**
+     * A {@link Minifier minifier} provided by formats that support string streaming such as file formats and string formats.
+     * @type {Minifier}
+     * @readonly
+     */
+    readonly minifier?: Minifier;
+    /**
+     * A {@link util.Messenger logger} used by formats to log info, errors and warnings during formatting. Note that the `isSealed` property will return `false` for this object when the formatting is yet to be completed and `true` when it is. Hence no logging may take place after the formatting is done.
+     * @type {util.Messenger}
+     * @readonly
+     */
+    readonly logger?: util.Messenger;
 
     /**
      * Parses the argument into a result and appends the result
