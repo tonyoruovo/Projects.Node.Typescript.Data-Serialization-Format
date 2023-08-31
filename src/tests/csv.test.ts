@@ -11,7 +11,7 @@ const rs = createReadStream(path);
 const csvSyntax = csv.RFC_4180;
 const csvParams = new csv.Params();
 const csvParser = new csv.Parser();
-const iniJsFormat = new ini.JSFormat();
+const iniFormat = new ini.StringFormat();
 const iniSyntax = ini.UNIX;
 const iniParams = new ini.Params();
 const iniParser = new ini.Parser();
@@ -31,11 +31,11 @@ rs.pipe(new csv.Converter(
   readableObjectMode: true,
 }, iniJSONLexer, iniParser, iniSyntax, iniParams))
 .on("data", (chunk) => {
-    (chunk as ini.Expression).format(iniJsFormat, iniSyntax, iniParams);
+    (chunk as ini.Expression).format(iniFormat, iniSyntax, iniParams);
   // e.format(iniJsFormat, iniSyntax, iniParams);
   })
   .on("end", () => {
-    console.log(iniJsFormat.data());
+    console.log(iniFormat.data());
   });
 // const data = [{
 //   "sibling1": "row1 column1",
