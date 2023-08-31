@@ -1,6 +1,6 @@
 # Projects.Node.Typescript.Data-Serialization-Format
 
-### Typescript usage
+### Typescript usage for csv to ini
 ```ts
 import csv from "../parser/csv.js";
 import { createReadStream } from "node:fs";
