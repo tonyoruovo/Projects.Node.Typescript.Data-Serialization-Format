@@ -19,6 +19,40 @@ namespace utility {
    */
   export type Compare = -1 | 0 | 1;
   /**
+   * A scribe object for logging messages. The destination is deliberately unknown but it may generally be a stream.
+   */
+  export interface Messenger {
+    /**
+     * Logs the given string(s) as an information message.
+     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @returns {boolean} `true` for a successful info log `false` otherwise.
+     */
+    info(...message: string[]): boolean;
+    /**
+     * Logs the given string(s) as a warning message.
+     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @returns {boolean} `true` for a successful warning log `false` otherwise.
+     */
+    warn(...message: string[]): boolean;
+    /**
+     * Logs the given string(s) as an error message.
+     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @returns {boolean} `true` for a successful error log `false` otherwise.
+     */
+    error(...message: string[]): boolean;
+    /**
+     * Prevents further messages to be written to a specific log. Once sealed a log may recieve messages no more and can no longer be opened from this instance.
+     * @param { 0 | 1 | 2 } logType The type of log to be closed/sealed. The valid values include: *0* - the error log which seals {@link error `error`}, *1* - the info log which seals {@link info `info`} and *2* - the warning log which seals {@link warn `warn`}.
+    */
+   seal(logType: 0|1|2): void;
+   /**
+    * Checks whether the given log is in a sealed state.
+    * @param { 0 | 1 | 2 } logType The type of log to be checked. The valid values include: *0* - the error log, *1* - the info log and *2* - the warning log.
+    * @returns {boolean} `true` if the given log is sealed `false` if otherwise
+    */
+    isSealed(logType: 0|1|2): boolean;
+  }
+  /**
    * An object that can create a 32 bit integer to represent
    * it's form. This 32 bit integer does not have to be unique
    * to the object, however it does have to be unique to it when
