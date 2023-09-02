@@ -21,6 +21,7 @@ const csvToMemory = new csv.Converter(csvConvOptions, csvLexer, csvParser, csvSy
 
 const toMemoryJson = new json.Converter(csvSyntax, csvParams, csvFormatter);
 
+/*Use ini.StringFormat() for strictly strings and ini.FileFormat(filename) for writing the result to a file named 'filename'*/
 const iniJsFormat = new ini.JSFormat();
 const iniSyntax = ini.UNIX;// can also be 'new ini.SyntaxBuilder().build()'
 const iniParams = new ini.Params();
