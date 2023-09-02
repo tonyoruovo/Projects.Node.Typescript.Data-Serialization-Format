@@ -1,4 +1,4 @@
-*/package-lock.json
+package-lock.json
 
 */.bin/
 
@@ -6,15 +6,11 @@
 
 */.bin/*/*
 
-*/./.bin/
-
-*/./.bin/*
-
-*/./.bin/*/**
-
-*/./.bin/parser
-
-*/./.bin/tests
+/.bin/
+/.bin/*
+/.bin/*/**
+/.bin/parser
+/.bin/tests
 
 # Logs
 logs
