@@ -50,7 +50,11 @@ We shall be using *simd* in the future for all of our conversion as it is faster
 \
 Rather than implement an intermediate converter for every lanuage that accepts expressions of their respective language, we are just going to format the expression to `JSFormat` and then feed to the next converter. \
 \
-A good parser must be streamable such that the parser should be limited only by what can be stored in the resident hard drive and not by the RAM. A good parser must use bit manipulation, bit vector to process tokens, this is the fastest method hence *simd* is a better method than pratt parsing. Every character is represented on a single array as a bit (1 or 0) relative to their position. This enables a programmer to retrieve info about a single token a throughout the document. for example if I want the bit data for all double quotes `"` in a json file i can do `document.getBitsForToken("\"")` and an array (whose length is equal to the number of characters in the json file) will be returned whereby all non 0 index will contain the info about the double quotes character. This operation must also be contant time.
+A good parser must be streamable such that the parser should be limited only by what can be stored in the resident hard drive and not by the RAM. A good parser must use bit manipulation, bit vector to process tokens, this is the fastest method hence *simd* is a better method than pratt parsing. Every character is represented on a single array as a bit (1 or 0) relative to their position. This enables a programmer to retrieve info about a single token a throughout the document. for example if I want the bit data for all double quotes `"` in a json file i can do `document.getBitsForToken("\"")` and an array (whose length is equal to the number of characters in the json file) will be returned whereby all non 0 index will contain the info about the double quotes character. This operation must also be contant time. \
+\
+When looking to create a parser for a set of file extensions, go on to Github.com and search using `path:/(^|\/)*\.extension$/` where *extension* is the file extension for the data you want create a parser for. This will give you a braod idea of how these file can be parsed as well as sample files to parse. \
+\
+Always set the tab and newline character in the syntax. Relying on the standard \t and \n will prevent many files from different os to be parsed. In the same spirit, also walways set all operators
 
 
 
