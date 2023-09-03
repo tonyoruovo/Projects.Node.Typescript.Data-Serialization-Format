@@ -24,22 +24,22 @@ namespace utility {
   export interface Messenger {
     /**
      * Logs the given string(s) as an information message.
-     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @param {...any[]} message a series of strings in the same format as C's `printf`
      * @returns {boolean} `true` for a successful info log `false` otherwise.
      */
-    info(...message: string[]): boolean;
+    info(...message: any[]): boolean;
     /**
      * Logs the given string(s) as a warning message.
-     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @param {...any[]} message a series of strings in the same format as C's `printf`
      * @returns {boolean} `true` for a successful warning log `false` otherwise.
      */
-    warn(...message: string[]): boolean;
+    warn(...message: any[]): boolean;
     /**
      * Logs the given string(s) as an error message.
-     * @param {...string[]} message a series of strings in the same format as C's `printf`
+     * @param {...any[]} message a series of strings in the same format as C's `printf`
      * @returns {boolean} `true` for a successful error log `false` otherwise.
      */
-    error(...message: string[]): boolean;
+    error(...message: any[]): boolean;
     /**
      * Prevents further messages to be written to a specific log. Once sealed a log may recieve messages no more and can no longer be opened from this instance.
      * @param { 0 | 1 | 2 } logType The type of log to be closed/sealed. The valid values include: *0* - the error log which seals {@link error `error`}, *1* - the info log which seals {@link info `info`} and *2* - the warning log which seals {@link warn `warn`}.
@@ -1009,10 +1009,12 @@ namespace utility {
     ).map((x) => x.segment);
   }
   /**
-   * Duplicates the first argument the specified number of _n_ times
+   * Duplicates the first argument the specified number of *n* times. Will return an empty string if `n` is less than or equal to 0.
    * @param {string} char the string to be duplicated
-   * @param {number} n the number of times that the string will be duplicated. values
-   * less than or equal to `0` will return an empty string
+   * @param {number} n the number of times that the string will be duplicated.
+   * @defaultValue
+   * The default is `0`
+   * @default 0
    * @returns {string} returns the first argument duplicated the specified number of
    * times given by the second argument
    */
@@ -1030,9 +1032,7 @@ namespace utility {
    * @template V the type of value to fill this array with.
    * @return {void} a mutable operation. does not return a value.
    */
-  export function fill<V>(array: V[], val: V, start?: number, numOfIndexes?: number): void {
-    start ??= 0;
-    numOfIndexes ??= array.length;
+  export function fill<V>(array: V[], val: V, start = 0, numOfIndexes = array.length): void {
     for (let i = start; i < start + numOfIndexes; i++) {
       array[i] = val;
     }
@@ -1047,7 +1047,7 @@ namespace utility {
     return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
   }
  /**
-   * Performs backward recursion from the given `current` and returns the path to the first folder where a `package.json` exists.
+   * Performs backward recursion from the given `start` directory and returns the path to the first folder where a `package.json` exists.
    * @param { string } start the directory from which path traversal begins.
    * @returns {string} the path to the folder where the first `package.json` file was found
    */
