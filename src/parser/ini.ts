@@ -52,7 +52,10 @@ import iconv from "iconv-lite";
  * mostly = great
  * ```
  * @remarks
- * Recfiles and toml are currently unsupported
+ * Recfiles and toml are currently unsupported.\
+ * \
+ * Although a syntax object can be configured to parse `.properties` files, files containing the `[` or`]` characters in their
+ * key/value will cause the parser to fail. Hence `.properties` files need their own parsing pipeline.
  */
 namespace ini {
     /**
@@ -77,13 +80,16 @@ namespace ini {
             let isEscapable;
             if(!Array.isArray(s.escape!.isSpecial)) isEscapable = (s.escape!.isSpecial as ((e: string) => boolean))(text[i]);
             else isEscapable = s.escape!.isSpecial.indexOf(text[i]) >= 0;
+
             if(isEscapable) {
-                // f.logger!.info(`isEscapable: ${text[i]} --> ${isEscapable}`);
-                const escaped = `${s.escape!.char}${text[i]}`;
+                const c = text[i].codePointAt(0)!.toString(16);
+                const escaped = s.escape!.unicode.length > 0 ? `${s.escape!.char}${s.escape!.unicode[0]}${utility.chars('0', 4 - c.length)}${c}` : text[i];
                 if(s.escape!.quoted) {isQuotable = true; val += escaped;}
                 else if(s.escape!.nonQuotedEsc) val += escaped;
-                else if(utility.isValid(f.logger)) {
-                    f.logger!.warn(`The character '${text[i]}' in string "${text}" needs to be escaped but it's not because the syntax does not support escaping special characters. When it is parsed from this format, an error will be thrown`);
+                else {
+                    if(utility.isValid(f.logger)) {
+                        f.logger!.warn(`The character '${text[i]}' in string "${text}" needs to be escaped but it's not because the syntax does not support escaping special characters. The next time it is parsed from this format, an error will be thrown`);
+                    }
                     val += text[i];
                 }
             } else {
@@ -100,19 +106,26 @@ namespace ini {
         for (const key in data.map) {
             if (data.map[key] instanceof Section){
                 // f.append('\n', s, p);
+                f.append(data.map[key].comments.preceding.length > 0 ? unwrapComments(data.map[key].comments, s) : "", s, p);
                 append(f, data.map[key] as Section, s, p, name.length > 0 ? `${name}.${processEscapables(key, s!, f)}` : `\n[${processEscapables(key, s!, f)}`);
             } else if (data.map[key] instanceof Property){
-                if(name.length > 0 && !coverSecName) {f.append(`${name}]`, s, p); f.append("\n", s, p); coverSecName = true;}
-                if(data.comments.inline && data.comments.inline.length > 0)
-                f.append(`${data.comments.inline}\n`, s, p);
+                if(name.length > 0 && !coverSecName) {
+					f.append(`${name}]`, s, p);
+					name = "";
+					if(data.comments.inline && data.comments.inline.length > 0)
+            			f.append(`${data.comments.inline}`, s, p);
+					f.append("\n", s, p);
+					coverSecName = true;
+				}
                 f.append((data.map[key] as Property), s, p);
             } else throw new expression.ExpressionError(`Illegal value found at ${name}.${key}`);
             // f.append('\n', s, p);
         }
+        if(name.length > 0 && !coverSecName) {f.append(`${name}]`, s, p); name = ""; f.append("\n", s, p); coverSecName = true;}
     }
     function unwrapComments(comments: { preceding: readonly string[] }, s?: Syntax) {
-        if(utility.isValid(s)) return s!.comments.chars[0] + comments.preceding.join("\n;").concat("\n");
-        return ";" + comments.preceding.join("\n;").concat("\n");
+        // if(utility.isValid(s)) return s!.comments.chars[0] + comments.preceding.join("\n;").concat("\n");
+        return comments.preceding.join("\n");
     }
     function isText(e: Expression): e is Text {
         return utility.isValid(e) && e instanceof Text;
@@ -160,16 +173,16 @@ namespace ini {
         private _dd = {section: DuplicateDirective.MERGE, property: DuplicateDirective.MERGE};
         private _nes?: {chars: string[], relative: boolean} = {chars: ['.', '/'], relative: true};
         // private _glo: string = "";
-        private _isSpecial = (s: string) => {
-            return ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || (utility.isValid(this._esc) && this._esc!.char === s);
-        }
+        // private _isSpecial = (s: string) => {
+        //     return ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || (utility.isValid(this._esc) && this._esc!.char === s);
+        // }
         private _esc?: {quoted: boolean, nonQuotedEsc: boolean, unicode: string[], char: string, isSpecial: (((s: string) => boolean) | string[]), parse(e: string): string}
             = {
                 char: "\\",
                 quoted: true,
                 nonQuotedEsc: false,
                 unicode: ['x', 'u'],
-                isSpecial: this._isSpecial,
+                isSpecial: null as any as (((s: string) => boolean) | string[]),
                 parse(e: string) {
                     let esc = e[1];
                     switch(e){
@@ -249,17 +262,17 @@ namespace ini {
         }
         constructor(){
             this.addPrefixCommand(COMMENT, new ParseComment(parser.Direction.PREFIX));
-            this.addPrefixCommand(EOL, new EndLine());
-            this.addPrefixCommand(ASSIGNMENT, new Assign(parser.Direction.PREFIX));
+            this.addPrefixCommand(EOL, new EndLine());//for blank line
+            this.addPrefixCommand(ASSIGNMENT, new Assign(parser.Direction.PREFIX));//for lines that start with the assignment token
             this.addPrefixCommand(TEXT, new ParseText());
             this.addPrefixCommand(D_QUOTE, new ParseText());
             this.addPrefixCommand(QUOTE, new ParseText());
             this.addPrefixCommand(SECTION_START, new ParseSection());
             this.addPrefixCommand(WHITESPACE, new ParseSpace());
-            this.addPrefixCommand(INIT, new Initializer());
-            this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));
+            this.addPrefixCommand(INIT, new Initialize());
+            this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));// for inline
             this.addInfixCommand(ASSIGNMENT, new Assign(parser.Direction.INFIX));
-            // this.addInfixCommand(EOL, new EndLine());
+            this.addInfixCommand(EOL, new EndLine());
             this.addInfixCommand(WHITESPACE, new ParseSpace());
         }
         public removeSupportForNesting() : SyntaxBuilder{
@@ -392,7 +405,7 @@ namespace ini {
             this._p = p??this._p;
             return this;
         }
-        public setDupDirective(dd: DuplicateDirective, forProperty?: boolean): SyntaxBuilder {
+        public setDuplicateDirective(dd: DuplicateDirective, forProperty?: boolean): SyntaxBuilder {
             if(utility.isValid(forProperty)) {
                 if(forProperty) this._dd.property = dd;
                 else this._dd.section = dd;
@@ -497,7 +510,7 @@ namespace ini {
             }
             return this;
         }
-        public clear(toDefault = false): SyntaxBuilder {
+        public clear(toDefault = true): SyntaxBuilder {
             // this._glo = "";
             this._getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
                 switch (d) {
@@ -526,7 +539,7 @@ namespace ini {
                     quoted: true,
                     nonQuotedEsc: false,
                     unicode: ['x', 'u'],
-                    isSpecial: this._isSpecial,
+                    isSpecial: null as any,
                     parse(e: string) {
                         let esc = e[1];
                         switch(e){
@@ -571,8 +584,12 @@ namespace ini {
             return this;
         }
         public build(): Syntax {
-            if(utility.isValid(this._esc) && this._esc!.nonQuotedEsc)
-                this.addPrefixCommand(ESCAPE, new ParseInitialEscape());
+            if(utility.isValid(this._esc)){
+                if(this._esc!.nonQuotedEsc)
+                    this.addPrefixCommand(ESCAPE, new ParseInitialEscape());
+                if(!utility.isValid(this._esc!.isSpecial))
+                    this._esc!.isSpecial = (s: string) => ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || this._esc!.char === s;
+            }
             return Object.freeze({
                 metadata: {...this._md, encoding: "utf-8"},
                 comments: {
@@ -811,12 +828,12 @@ namespace ini {
     export const SUB_SECTION: parser.GType<string> = new Type("5", 3);
     export const SECTION_END: parser.GType<string> = new Type("6", 1);
     export const ASSIGNMENT: parser.GType<string> = new Type("7", 3);//Does not matter the precedence it has will will always be parsed with the `parse(0)` So it will be parsed as long as it's precedence is greater than 0
-    export const COMMENT: parser.GType<string> = new Type("8", 5);
+    export const COMMENT: parser.GType<string> = new Type("8", 0);
     export const QUOTE_END: parser.GType<string> = new Type("9", 5);
     export const D_QUOTE_END: parser.GType<string> = new Type("10", 5);
     export const ESCAPE: parser.GType<string> = new Type("11", 5);
     export const ESCAPED: parser.GType<string> = new Type("12", 5);
-    export const WHITESPACE: parser.GType<string> = new Type("13", 5);
+    export const WHITESPACE: parser.GType<string> = new Type("13", 1);
     export const INIT: parser.GType<string> = new Type("14", Number.MAX_SAFE_INTEGER);
 
     class Token implements parser.GToken<string> {
@@ -1062,7 +1079,7 @@ namespace ini {
         #esc;//number of escape characters found on a line
         #text;
         #escText;
-        #qt = false;//check for quote start. true means the next quote will be a closing one
+        #quoteType = null as any as Type;//check for quote start. null means the next quote will be a starting one else the next is an end one
         #com = "";//comments
         constructor() {
             this.#ln = 0;
@@ -1091,25 +1108,27 @@ namespace ini {
         }
         end(syntax: Syntax, params: Params): void {
             if(this.canProcess()) this.process("", syntax, params);
-            if(this.#queue[this.#queue.length - 1] && !this.#queue[this.#queue.length - 1].type.equals(EOL))
-                this.process(this.#eol, syntax, params);
+            this.process("\n", syntax, params);
+            // if(this.#queue[this.#queue.length - 1] && !this.#queue[this.#queue.length - 1].type.equals(EOL))
+            //     this.process(this.#eol, syntax, params);
         }
         process(chunk: string = "", syntax: Syntax, p: Params): void {
             this.src += chunk;
             while (this.src.length > 0) {
                 const token = this.#shiftSrc(1)!;
                 this.#li++;
-                if(!this.#escEven()){
-                    if(this.#escText.length === 0){
+				if(token === this.#eol) {this.#ln++; this.#li = 0}
+                if(!this.#escEven()) {
+                    if(this.#escText.length === 0) {
                         this.#escText += token;
-                        if(!syntax.escape!.unicode.indexOf(this.#escText[0])){
+                        if(syntax.escape!.unicode.indexOf(this.#escText[0]) < 0) {
                             this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
                         }
                     } else if(/[A-Fa-f0-9]/.test(token)) {
                         this.#escText += token;
-                        if(this.#escText.length === 4) {
+                        if(this.#escText.length === 5) {
                             this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
@@ -1120,20 +1139,21 @@ namespace ini {
                         this.#esc = 0;
                         this.#text += token;
                     }
-                    if(this.#escText.length === 0)
-                    this.#escText += token;
+                    // if(this.#escText.length === 0)
+                    // this.#escText += token;
                     /*If the escape sequence is not a unicode escape sequence, then a single character would suffice to be escaped */
-                    if(!syntax.escape!.unicode.indexOf(this.#escText[0])) {
-                    } else if(!/[A-Fa-f0-9]/.test(token)) {
-                        this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
-                        this.#escText = "";
-                        this.#esc = 0;
-                    }
+                    // if(syntax.escape!.unicode.indexOf(this.#escText[0]) < 0 || !/[A-Fa-f0-9]/.test(token)) {
+                    //     this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
+                    //     this.#escText = "";
+                    //     this.#esc = 0;
+                    // }
                 } else if(token === this.#eol) {
                     if(this.#com.length > 0){
+                        if(this.#com[this.#com.length - 1] === "\r") this.#com = this.#com.substring(0, this.#com.length - 1);
                         this.#manufacture(new Token(this.#com, COMMENT, this.#ln, this.#ln, this.#li - this.#com.length));
                         this.#com = "";
                     } else if(this.#text.length > 0) {
+                        if(this.#text[this.#text.length - 1] === "\r") this.#text = this.#text.substring(0, this.#text.length - 1);
                         this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
@@ -1174,8 +1194,10 @@ namespace ini {
                         this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, this.#qt ? QUOTE_END : QUOTE, this.#ln, this.#ln, this.#li - token.length));
-                    this.#qt = !this.#qt;
+                    this.#manufacture(new Token(token, QUOTE.equals(this.#quoteType) ? QUOTE_END : QUOTE, this.#ln, this.#ln, this.#li - token.length));
+                    // this.#qt = !this.#qt;
+                    if(QUOTE.equals(this.#quoteType)) this.#quoteType = null as any as Type;
+                    else if(!utility.isValid(this.#quoteType)) this.#quoteType = QUOTE;
                     this.#escText = "";
                     this.#esc = 0;
                 } else if(token === '"'  && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
@@ -1183,8 +1205,9 @@ namespace ini {
                         this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#manufacture(new Token(token, this.#qt ? D_QUOTE_END : D_QUOTE, this.#ln, this.#ln, this.#li - token.length));
-                    this.#qt = !this.#qt;
+                    this.#manufacture(new Token(token, D_QUOTE.equals(this.#quoteType) ? D_QUOTE_END : D_QUOTE, this.#ln, this.#ln, this.#li - token.length));
+                    if(D_QUOTE.equals(this.#quoteType)) this.#quoteType = null as any as Type;
+                    else if(!utility.isValid(this.#quoteType)) this.#quoteType = D_QUOTE;
                     this.#escText = "";
                     this.#esc = 0;
                 } else if(utility.isValid(syntax.nesting) && syntax.nesting!.chars.indexOf(token) > -1) {
@@ -1272,16 +1295,27 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             let escd = yp.value;
             if(s.escape!.nonQuotedEsc) {
-                escd = s.escape!.parse(escd + p.consume(ESCAPED, l, s, pa!).value);
+                const escaped = p.consume(ESCAPED, l, s, pa).value;
+                if(escaped === "\r" && p.match(EOL, l, s, p)) {
+                    escd = s.escape!.parse(escd + p.consume(EOL, l, s, pa!).value);
+                } else escd = s.escape!.parse(escd + escaped);
             }
-            while(p.match(ESCAPE, l, s, pa)){
-                const esc = p.consume(ESCAPE, l, s, pa);
-                const escaped = p.consume(ESCAPED, l, s, pa);
-                escd += s.escape!.parse(esc.value + escaped.value);
+            while(true) {
+                if(p.match(TEXT, l, s, pa!)) escd += p.consume(TEXT, l, s, pa).value;
+                else if(p.match(WHITESPACE, l, s, pa!)) escd += p.consume(WHITESPACE, l, s, pa).value;
+                else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) escd += p.consume(SUB_SECTION, l, s, pa).value;
+                else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) escd += p.consume(ASSIGNMENT, l, s, pa).value;
+                else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) escd += p.consume(COMMENT, l, s, pa).value;
+                else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
+                    const esc = p.consume(ESCAPE, l, s, pa);
+                    const escaped = p.consume(ESCAPED, l, s, pa);
+                    if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
+                        escd += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
+                    } else escd += s.escape!.parse(esc.value + escaped.value);
+                } else break;
             }
-            if(p.match(TEXT, l, s, pa)){
-                return s.getCommand(parser.Direction.PREFIX, TEXT)!.parse(ap, new Token(escd, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
-            }
+            escd = escd.trim();
+            // console.log(`InitialEscape; token: ${yp.value}, result: ${escd}`)
             return new Text(escd);
         }
     }
@@ -1289,18 +1323,30 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             switch (this.direction) {
                 case parser.Direction.PREFIX:{
-                    pa!.block.push(yp.value);
-                    while (!p.match(EOL, l, s, pa!)) {
-                        const comment = p.consume(COMMENT, l, s, pa).value;
-                        if(s.comments.retain){
-                            pa!.block.push(comment);
-                        }
+                    if(s.comments.retain) pa!.block.push(yp.value);
+                    // while (!p.match(EOL, l, s, pa!)) {
+                    //     const comment = p.consume(COMMENT, l, s, pa).value;
+                    //     if(s.comments.retain){
+                    //         pa!.block.push(comment);
+                    //     }
+                    // }
+                    while (true) {
+                        if(p.match(EOL, l, s, pa!)) p.consume(EOL, l, s, pa);
+                        else if(p.match(COMMENT, l, s, pa!)){
+                            const comment = p.consume(COMMENT, l, s, pa).value;
+                            if(s.comments.retain){
+                                pa!.block.push(comment);
+                            }
+                        } else break;
                     }
+					// console.log(`Block: ${pa!.block}`);
+                    break;
                 }
                 case parser.Direction.POSTFIX:
                 case parser.Direction.INFIX:
                 default: {
                     if(s.comments.retain) pa!.inline = yp.value;
+					// console.log(`Inline: ${pa!.inline}`);
                 }
             }
             return ap;
@@ -1310,33 +1356,37 @@ namespace ini {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, TEXT)!.parse(ap, new Token(yp.value, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
             pa!.assigned = true;
-            switch(this.direction) {
-                case parser.Direction.PREFIX: {
-                    const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
-                    const right  = isText(rightExpr) ? (rightExpr as Text).text : "";
-                    const preceding = pa!.block;
-                    pa!.block = [];
-                    if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
-                    return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, "", right);
+            let left: string = "", right: string, preceding: string[];
+            // console.log("assignment with '" + yp.value + "'");
+            
+            try {
+                const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                switch(this.direction) {
+                    case parser.Direction.PREFIX: {
+                        if(utility.isValid(rightExpr) && !(rightExpr instanceof Text)) throw new parser.ParseError(`Could not parse whatever was after the assignment operator at line ${yp.lineStart}, position ${yp.startPos}`);
+                        right  = isText(rightExpr) ? rightExpr.text : "";
+                        preceding = pa!.block;
+                        pa!.block = [];
+                        if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
+                        break;
+                    }
+                    case parser.Direction.INFIX:
+                    case parser.Direction.POSTFIX:
+                    default: {
+                        left  = isText(ap) ? (ap as Text).text : "";
+                        if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
+                        if(utility.isValid(rightExpr) && !(rightExpr instanceof Text)) throw new parser.ParseError(`Could not parse whatever was after the assignment operator at line ${yp.lineStart}, position ${yp.startPos}`);
+                        right  = isText(rightExpr) ? rightExpr.text : "";
+                        preceding = pa!.block;
+                        pa!.block = [];
+                    }
                 }
-                case parser.Direction.INFIX:
-                case parser.Direction.POSTFIX:
-                default: {
-                    const left  = isText(ap) ? (ap as Text).text : "";
-                    const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
-                    if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
-                    // console.log(p.match(TEXT, l, s, pa));
-                    // console.log(yp);
-                    // console.log(rightExpr);
-                    if(!(rightExpr instanceof Text)) throw new parser.ParseError("Could not parse whatever was after the section nesting operator");
-                    const right  = (rightExpr as Text).text;
-                    const preceding = pa!.block;
-                    pa!.block = [];
-                    //parse inline comments
-                    // if(p.match(COMMENT, l, s, pa!)) p.parse(l, s, pa);
-                    return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, left, right);
-                }
+            } catch (e: any) {
+                throw new parser.SyntaxError(yp, e);
             }
+            pa!.assigned = false;
+            // console.log(`Assign; token: ${yp.value}, result: left > ${left}, right >${right}`);
+            return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, left, right);
         }
     }
     class ParseSection implements Command {
@@ -1347,18 +1397,26 @@ namespace ini {
             if(utility.isValid(s.nesting) && s.nesting!.relative && p.match(SUB_SECTION, l, s, pa)){
                 do {
                     p.consume(SUB_SECTION, l, s, pa);
-                    const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
-                    if(text instanceof Text){
-                        pa!.section.push(text.text);
+                    try {
+                        const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                        if(text instanceof Text){
+                            pa!.section.push(text.text);
+                        }
+                        else throw new parser.ParseError("section name not found")
+                    } catch (e: any) {
+                        throw new parser.SyntaxError(yp, e);
                     }
-                    else throw new parser.ParseError("section name not found")
                 } while (p.match(SUB_SECTION, l, s, pa));
             } else {
                 pa!.section = [];
                 while(true) {
-                    const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
-                    if(text instanceof Text) pa!.section.push(text.text);
-                    else throw new parser.ParseError("section name not found");
+                    try {
+                        const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                        if(text instanceof Text) pa!.section.push(text.text);
+                        else throw new parser.ParseError("section name not found");
+                    } catch (e: any) {
+                        throw new parser.SyntaxError(yp, e);
+                    }
                     if(p.match(SUB_SECTION, l, s, pa)) p.consume(SUB_SECTION, l, s, pa);
                     else {
                         p.consume(SECTION_END, l, s, pa);
@@ -1374,7 +1432,12 @@ namespace ini {
             pa!.block = [];
             pa!.inline = "";
             while((!p.match(SECTION_START, l, s, pa!)) && !p.match(EOF, l, s, pa!)) {
-                let prop = p.parse(l, s, pa);
+                let prop;
+                try {
+                    prop = p.parse(l, s, pa);
+                } catch (e: any) {
+                    throw new parser.SyntaxError(yp, e);   
+                }
                 pa!.assigned = false;
                 if(!utility.isValid(prop)) {//a blank or comment line
                     continue;
@@ -1384,14 +1447,21 @@ namespace ini {
                         pa!.block = [];
                         pa!.inline = "";
                     }
-                    scope.add(s, [], prop as KeyValue);
+                    try {
+                        scope.add(s, [], prop as KeyValue);
+                    } catch (e: any) {
+                        throw new parser.SyntaxError(yp, e);
+                    }
                 }  else throw new parser.ParseError(`Unexpected value found`);
             }
-            // console.log(scope);
 
             if(utility.isValid(ap)){
-                //add this scope to the parent/global scope
-                (ap as Section).add(s, pa!.section, scope);
+                try {
+                    //add this scope to the parent/global scope
+                    (ap as Section).add(s, pa!.section, scope);
+                } catch (e: any) {
+                    throw new parser.SyntaxError(yp, e);
+                }
                 return ap;//return the parent/global scope
             }
             return scope;
@@ -1400,96 +1470,89 @@ namespace ini {
     /**SUB_SECTION (.), ASSIGNMENT (=) and COMMENT (;) are all parsed as text when inside a quote or double quotes */
     class ParseText implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            let text = "";
             if(yp.type.equals(QUOTE)) {
-                const tokens = Array<Token>();
                 while(true){
-                    if(p.match(TEXT, l, s, pa))
-                    tokens.push(p.consume(TEXT, l, s, pa) as Token);
-                    else if(p.match(ESCAPE, l, s, pa)){
+                    if(p.match(TEXT, l, s, pa)) text += p.consume(TEXT, l, s, pa).value;
+                    else if(p.match(SUB_SECTION, l, s, pa!)) text += p.consume(SUB_SECTION, l, s, pa).value;
+                    else if(p.match(ASSIGNMENT, l, s, pa!)) text += p.consume(ASSIGNMENT, l, s, pa).value;
+                    else if(p.match(COMMENT, l, s, pa!)) text += p.consume(COMMENT, l, s, pa).value;
+                    else if(p.match(SECTION_START, l, s, pa!)) text += p.consume(SECTION_START, l, s, pa).value;
+                    else if(p.match(SECTION_END, l, s, pa!)) text += p.consume(SECTION_END, l, s, pa).value;
+                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
+                    else if(p.match(D_QUOTE, l, s, pa)) text += p.consume(D_QUOTE, l, s, pa).value;
+                    else if(p.match(D_QUOTE_END, l, s, pa)) text += p.consume(D_QUOTE_END, l, s, pa).value;
+                    else if(p.match(ESCAPE, l, s, pa)) {
                         const esc = p.consume(ESCAPE, l, s, pa);
-                        const escaped = p.consume(ESCAPED, l, s, pa) as Token;
-                        tokens.push(new Token(s.escape!.parse(esc.value + escaped.value), TEXT, escaped.lineStart, escaped.lineEnd, escaped.startPos));
-                    } else if(p.match(SUB_SECTION, l, s, pa!)) {
-                        tokens.push(p.consume(SUB_SECTION, l, s, pa!) as Token);
-                    } else if(p.match(ASSIGNMENT, l, s, pa!)) {
-                        tokens.push(p.consume(ASSIGNMENT, l, s, pa!) as Token);
-                    } else if(p.match(COMMENT, l, s, pa!)){
-                        tokens.push(p.consume(COMMENT, l, s, pa!) as Token);
-                    } else if(p.match(SECTION_START, l, s, pa!)){
-                        tokens.push(p.consume(SECTION_START, l, s, pa!) as Token);
-                    } else if(p.match(SECTION_END, l, s, pa!)){
-                        tokens.push(p.consume(SECTION_END, l, s, pa!) as Token);
-                    } else if(p.match(WHITESPACE, l, s, pa!)) {
-                        tokens.push(p.consume(WHITESPACE, l, s, pa) as Token);
-                    } else if(p.match(D_QUOTE, l, s, pa))
-                    tokens.push(p.consume(D_QUOTE, l, s, pa) as Token);
-                    else if(p.match(D_QUOTE_END, l, s, pa))
-                    tokens.push(p.consume(D_QUOTE_END, l, s, pa) as Token);
-                    else if(p.match(QUOTE_END, l, s, pa)) {
+                        const escaped = p.consume(ESCAPED, l, s, pa);
+                        if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
+                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
+                        } else text += s.escape!.parse(esc.value + escaped.value);
+                    } else if(p.match(QUOTE_END, l, s, pa)) {
                         p.consume(QUOTE_END, l, s, pa);
                         break;
                     }
                 }
-                return new Text(mergeTokens(tokens))
             } else if(yp.type.equals(D_QUOTE)) {
-                const tokens = Array<Token>();
                 while(true){
-                    if(p.match(TEXT, l, s, pa))
-                    tokens.push(p.consume(TEXT, l, s, pa) as Token);
-                    else if(p.match(ESCAPE, l, s, pa)){
+                    if(p.match(TEXT, l, s, pa)) text += p.consume(TEXT, l, s, pa).value;
+                    else if(p.match(SUB_SECTION, l, s, pa!)) text += p.consume(SUB_SECTION, l, s, pa).value;
+                    else if(p.match(ASSIGNMENT, l, s, pa!)) text += p.consume(ASSIGNMENT, l, s, pa).value;
+                    else if(p.match(COMMENT, l, s, pa!)) text += p.consume(COMMENT, l, s, pa).value;
+                    else if(p.match(SECTION_START, l, s, pa!)) text += p.consume(SECTION_START, l, s, pa).value;
+                    else if(p.match(SECTION_END, l, s, pa!)) text += p.consume(SECTION_END, l, s, pa).value;
+                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
+                    else if(p.match(QUOTE, l, s, pa)) text += p.consume(QUOTE, l, s, pa).value;
+                    else if(p.match(QUOTE_END, l, s, pa)) text += p.consume(QUOTE_END, l, s, pa).value;
+                    else if(p.match(ESCAPE, l, s, pa)) {
                         const esc = p.consume(ESCAPE, l, s, pa);
-                        const escaped = p.consume(ESCAPED, l, s, pa) as Token;
-                        tokens.push(new Token(s.escape!.parse(esc.value + escaped.value), TEXT, escaped.lineStart, escaped.lineEnd, escaped.startPos));
-                    } else if(p.match(SUB_SECTION, l, s, pa!)) {
-                        tokens.push(p.consume(SUB_SECTION, l, s, pa!) as Token);
-                    } else if(p.match(ASSIGNMENT, l, s, pa!)) {
-                        tokens.push(p.consume(ASSIGNMENT, l, s, pa!) as Token);
-                    } else if(p.match(COMMENT, l, s, pa!)){
-                        tokens.push(p.consume(COMMENT, l, s, pa!) as Token);
-                    } else if(p.match(SECTION_START, l, s, pa!)){
-                        tokens.push(p.consume(SECTION_START, l, s, pa!) as Token);
-                    } else if(p.match(SECTION_END, l, s, pa!)){
-                        tokens.push(p.consume(SECTION_END, l, s, pa!) as Token);
-                    } else if(p.match(WHITESPACE, l, s, pa!)) {
-                        tokens.push(p.consume(WHITESPACE, l, s, pa) as Token);
-                    } else if(p.match(QUOTE, l, s, pa))
-                    tokens.push(p.consume(QUOTE, l, s, pa) as Token);
-                    else if(p.match(QUOTE_END, l, s, pa))
-                    tokens.push(p.consume(QUOTE_END, l, s, pa) as Token);
-                    else if(p.match(D_QUOTE_END, l, s, pa)) {
+                        const escaped = p.consume(ESCAPED, l, s, pa);
+                        if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
+                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
+                        } else text += s.escape!.parse(esc.value + escaped.value);
+                    } else if(p.match(D_QUOTE_END, l, s, pa)) {
                         p.consume(D_QUOTE_END, l, s, pa);
                         break;
                     }
+                    // console.log(p.match(D_QUOTE, l, s, pa));
+                    
+                    // console.log(`Parsed text: ${text}`);
                 }
-                return new Text(mergeTokens(tokens))
+            } else {
+				text = yp.value;
+                while(true) {
+                    if(p.match(TEXT, l, s, pa!)) text += p.consume(TEXT, l, s, pa).value;
+                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
+                    else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) text += p.consume(SUB_SECTION, l, s, pa).value;
+                    else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) text += p.consume(ASSIGNMENT, l, s, pa).value;
+                    else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) text += p.consume(COMMENT, l, s, pa).value;
+                    else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
+                        const esc = p.consume(ESCAPE, l, s, pa);
+                        const escaped = p.consume(ESCAPED, l, s, pa);
+                        if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
+                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
+                        } else text += s.escape!.parse(esc.value + escaped.value);
+                    } else break;
+                }
+                text = text.trim();
             }
-            let string = yp.value;
-            while(true) {
-                if(p.match(TEXT, l, s, pa!)) string += p.consume(TEXT, l, s, pa);
-                else if(p.match(WHITESPACE, l, s, pa!)) string += p.consume(WHITESPACE, l, s, pa);
-                else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) string += p.consume(SUB_SECTION, l, s, pa);
-                else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) string += p.consume(ASSIGNMENT, l, s, pa).value;
-                else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
-                    const esc = p.consume(ESCAPE, l, s, pa);
-                    const escaped = p.consume(ESCAPED, l, s, pa);
-                    string += s.escape!.parse(esc.value + escaped.value);
-                } else break;
-            }
-            return new Text(string.trim());
+            // console.log(`parseText: ${text}`);
+            return new Text(text);
         }
     }
     class EndLine implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            skipBlankLines(l,s, p, pa!);
+            skipBlankLines(l, s, p, pa!);
             pa!.assigned = false;
-            // console.log(ap);
+            // console.log("Endline");
             // if(p.match(SECTION_START, l, s, pa)) return s.getCommand(parser.Direction.PREFIX, SECTION_START)!.parse(ap, p.consume(SECTION_START, l, s, pa) as Token, p, l, s, pa);
             return ap;
         }
     }
-    class Initializer implements Command {
+    class Initialize implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             ap = new Section(emptyComment());
+            // console.log("Intialize");
             while(!p.match(EOF, l, s, pa)){
                 let exp = p.parse(l, s, pa);
                 if(!utility.isValid(exp)) {//a blank or comment line
@@ -1507,9 +1570,16 @@ namespace ini {
     /**A command to parse prefix whitespace. Because of the way the lexer creates tokens, this will only be called if a whitespace is not a delimiter like {@link PROPERTIES `PROPERTIES`} */
     class ParseSpace implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            let spaces = 1;
             while(p.match(WHITESPACE, l, s, pa!)){
+                spaces++;
                 p.consume(WHITESPACE, l,s, pa);
             }
+            // console.log(`ParseSpace. NumOfSpaces: ${spaces}`);
+            if(p.match(TEXT, l, s, pa)) try{return p.parseWithPrecedence(TEXT.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
+            else if(p.match(QUOTE, l, s, pa)) try{return p.parseWithPrecedence(QUOTE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
+            else if(p.match(D_QUOTE, l, s, pa)) try{return p.parseWithPrecedence(D_QUOTE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
+            else if(p.match(ESCAPE, l, s, pa)) try{return p.parseWithPrecedence(ESCAPE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
             return ap;
         }
     }
@@ -1586,7 +1656,7 @@ namespace ini {
                     } else break;
                     case DuplicateDirective.OVERWRITE: break;
                     case DuplicateDirective.DISCARD: if(utility.isValid(section._map[name])) return; else break;
-                    case DuplicateDirective.THROW: throw new expression.ExpressionError("Duplicate not supported");
+                    case DuplicateDirective.THROW: throw new expression.ExpressionError("Duplicate not supported for section '" + name + "'");
                 }
                 section._map[name] = value??new Section();
                 return;
@@ -1669,7 +1739,7 @@ namespace ini {
                         break;
                     }
                     case DuplicateDirective.DISCARD: if(this._values.length > 0) return; else break;
-                    case DuplicateDirective.THROW: if(this._values.length > 0) throw Error("Duplicate not supported");
+                    case DuplicateDirective.THROW: if(this._values.length > 0) throw Error("Duplicate not supported for property '" + param.key + "'");
                 }
                 this._values.push(param);
             } else if(param instanceof Text) {
@@ -1776,11 +1846,11 @@ namespace ini {
                 this._data +=  data;
                 this.modifications++;
             } else if(data instanceof KeyValue) {
-                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
                 this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}`, s, p);
+                this.append(`${data.comments.inline ? data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
-                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
                 for (let i = 0; i < data.values.length; i++) {
                     this.append(data.values[i], s, p);
                     if(i < data.values.length - 1) this.append("\n", s, p);
@@ -1788,7 +1858,6 @@ namespace ini {
                 this.append("\n", s, p);
                 // this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}\n`, s, p);
             } else if(data instanceof Section){
-                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
                 append(this, data, s, p);
             } else if(data instanceof Text) {
                 this._data += data.text;
@@ -1937,11 +2006,11 @@ namespace ini {
                 this._str.write(data);
                 this.modifications++;
             } else if(data instanceof KeyValue) {
-                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
                 this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
-                this.append(`${data.comments.inline ? s!.comments.chars[0] + data.comments.inline : ""}`, s, p);
+                this.append(`${data.comments.inline ? data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
-                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) : "", s, p);
+                this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
                 for (let i = 0; i < data.values.length; i++) {
                     this.append(data.values[i], s, p);
                     if(i < data.values.length - 1) this.append("\n", s, p);
@@ -2016,23 +2085,25 @@ namespace ini {
         }
     }
 
+    export const GENERIC = new SyntaxBuilder().build();
+
     export const UNIX = new SyntaxBuilder()
         .removeCommentChar(";")
         .retainComments(false)
         .removeDelimiter(':')
-        .setDupDirective(DuplicateDirective.OVERWRITE, true)
-        .setDupDirective(DuplicateDirective.MERGE, false)
+        .setDuplicateDirective(DuplicateDirective.OVERWRITE, true)
+        .setDuplicateDirective(DuplicateDirective.MERGE, false)
         .build();
 
     export const PROPERTIES = new SyntaxBuilder()
         .removeCommentChar(";")
         .addCommentChar("!")
         .supportInline(false)
-        .retainComments(true)//Can't decide on this functionality
+        .retainComments(false)//Can't decide on this functionality
         .addDelimiter('\t')
         .addDelimiter('\f')
-        .setDupDirective(DuplicateDirective.OVERWRITE, true)
-        .setDupDirective(DuplicateDirective.THROW, false)
+        .setDuplicateDirective(DuplicateDirective.OVERWRITE, true)
+        .setDuplicateDirective(DuplicateDirective.THROW, false)
         .removeSupportForNesting()
         .supportQuotedText(false)
         .supportNonQuotedEscape(true)
@@ -2040,14 +2111,14 @@ namespace ini {
         .build();
 
     export const WINAPI = new SyntaxBuilder()
-        .removeCommentChar('#')//only ';' are supported
+        .removeCommentChar('#')//only ';' is supported
         .supportInline(false)
-        .setDupDirective(DuplicateDirective.DISCARD, false)//for sections
-        // .setDupDirective(DuplicateDirective.MERGE, true)//for props, already the default
-        .retainComments(true)//Can't decide on this functionality
-        .removeDelimiter(':')//only ";" will be used
+        .setDuplicateDirective(DuplicateDirective.DISCARD, false)//for sections
+        // .setDuplicateDirective(DuplicateDirective.MERGE, true)//for props, already the default
+        .retainComments(false)//Can't decide on this functionality
+        .removeDelimiter(':')//only "=" will be used
         .removeSupportForNesting()//no nesting char needed
-        // .supportRelativeNesting(true)// nesting already the default
+        // .supportRelativeNesting(true)// nesting already removed
         .removeUnicodeChar('x')// Donot support unicode escapes
         .removeUnicodeChar('u')// Donot support unicode escapes
         // .supportNonQuotedEscape(false)//already the default
