@@ -97,7 +97,7 @@ namespace parser {
      * @param {Error|undefined} cause the error that caused this object to be thrown
      */
     constructor(public readonly token: Token, cause?: Error) {
-      super(
+      super(util.isValid(cause) ? `The token after '${token.value}' was not parsed because of the following: ` :
         `Unexpected token "${token.value}" at line: ${token.lineStart}, position: ${token.startPos}`,
         cause
       );
@@ -706,6 +706,7 @@ namespace parser {
     TV = string,
   > implements GParser<E, S, GLexer<GToken<TV>, S>>
   {
+    private ii = 0;
     // parse(lexer: GLexer<GToken<TV>, S>, syntax: S): E;
     /**
      * Prompts the provided Lexer for tokens and parses the results into an expression.
@@ -757,8 +758,7 @@ namespace parser {
     public parseWithPrecedence<P>(beginingPrecedence: number, l: GLexer<GToken<TV>, S>, s: S, params: P): E {
       // the first token
       let t = this.readAndPop(l, s, params);
-      // console.log("first");
-      // console.table(t);
+      // console.log(`first: ${t.value}`);
       //must be a prefix
       const prefix = s.getCommand(Direction.PREFIX, t.type!);
 
@@ -771,8 +771,7 @@ namespace parser {
       while (beginingPrecedence < this.getPrecedence(l, s, params)) {
         //The next token
         t = this.readAndPop(l, s, params);
-        // console.log('second');
-        // console.table(t);
+        // console.log(`second: ${t.value}`);
         // is expected to be an infix
         const infix = s.getCommand(Direction.INFIX, t.type!)!;
         //!!!Expreimental!!!
@@ -785,7 +784,9 @@ namespace parser {
         // }
         left = infix.parse(left, t, this, l, s, params);
       }
-
+      // console.log(this.ii++);
+      // console.log(left);
+      // console.log("\r\n");
       return left;
     }
 
