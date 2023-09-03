@@ -1489,7 +1489,7 @@ namespace csv {
     #li: number; //the character's position in the line that is being analysed. This value is reset each time a new character is being analysed
     // #token?: string;//the text currently being analysed as a token
     #header?: string[]; //an array of the header columns
-    public src: string[]; //an array characters read from a stream
+    public src: string; //an string characters read from a stream
     #field: string; //the current field value. When this prop's length at least 1, there a field is being read
     #op: string; //the current field value. When this prop's length at least 1, there a field is being read
     #queue: Token[]; //an array of already-made token objects
@@ -1497,7 +1497,7 @@ namespace csv {
       this.#ln = 1;
       this.#li = 0;
       this.#header = [];
-      this.src = [];
+      this.src = "";
       this.#field = "";
       this.#op = "";
       this.#queue = [];
@@ -1510,10 +1510,11 @@ namespace csv {
         stripEscaped.startsWith(s.dQuotes) && !stripEscaped.endsWith(s.dQuotes)
       );
     }
-    #splitChunk(chunk: string) {
-      const string = new Array<string>();
-      for (let i = 0; i < chunk.length; i++) string.push(chunk[i]);
-      return string.length < 2 ? chunk : string;
+    #shiftSrc(distance: number) {
+        if(distance > this.src.length) return undefined;
+        const rv = this.src.substring(0, distance);
+        this.src = this.src.substring(distance);
+        return rv;
     }
     #manufacture(token: Token) {
       // this.#queue.push(this.#lqt = token);
@@ -1560,13 +1561,9 @@ namespace csv {
     process(chunk: string, syntax: Syntax, params: unknown): void;
     process(chunk: string, syntax: Syntax, params: Params) {
       params.headerless = this.line() < 1 && utility.isValid(params.header);
-      if (chunk.length > 0) {
-        const string = this.#splitChunk(chunk);
-        if (Array.isArray(string)) string.forEach((x) => this.src.push(x));
-        else this.src.push(string);
-      }
+      this.src += chunk;
       while (this.src.length > 0) {
-        const token = this.src.shift()!;
+        const token = this.#shiftSrc(1)!;
         this.#li++;
         if (
           syntax.eol.startsWith(this.#op + token) &&
