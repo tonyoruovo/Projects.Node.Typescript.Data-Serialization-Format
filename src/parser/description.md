@@ -55,6 +55,13 @@ A good parser must be streamable such that the parser should be limited only by 
 When looking to create a parser for a set of file extensions, go on to Github.com and search using `path:/(^|\/)*\.extension$/` where *extension* is the file extension for the data you want create a parser for. This will give you a braod idea of how these file can be parsed as well as sample files to parse. \
 \
 Always set the tab and newline character in the syntax. Relying on the standard \t and \n will prevent many files from different os to be parsed. In the same spirit, also walways set all operators
-
-
-
+\
+Text expression shoulg contain the src and shoulbe declared thus:
+```ts
+class Text {
+  constructor(formatted: string, src?: string){
+    //assign all parameters here ...
+  }
+}
+```
+This is because when a text has escaped/special values, the formatter will not know exactly how to print the text to a file hence may end up escaping all values that are intended to be literal (such as a literally escaped new line with obvious extra lines such as using a `\` before a new line) or printing a literal meant to be escaped (such as unicode escapes).
