@@ -1,3 +1,4 @@
+// import { type } from "node:os";
 import { Transform, TransformCallback, TransformOptions } from "node:stream";
 import { Transformer, TransformStream, ReadableStream, WritableStream, TransformStreamDefaultController, CountQueuingStrategy, ByteLengthQueuingStrategy, QueuingStrategy } from "node:stream/web";
 import util from "../utility.js";
@@ -17,6 +18,27 @@ import exp from "./expression.js";
  * memorywise (in terms of RAM).
  */
 namespace parser {
+  /**Maybe used by parsers and commands to coerce a value read from an external source (possibly from a stream -- file, web or otherwise), to an valid type that can be stored in memory*/
+  export type ToMemory<FROM = string, TO = any> = {
+    readonly parse: (val: FROM) => TO;
+  }
+  /**Maybe used by formatters to coerce a data type read from an internal source (like memory) to a specified valid external type*/
+  export type FromMemory<FROM = any, TO = string> = {
+    readonly format: (val: FROM) => TO;
+  }
+  /**Used to quickly move between external and internal types*/
+  export type Channel<FROM = any, TO = string> = ToMemory<FROM, TO> & FromMemory<FROM, TO>;
+  /**
+   * ***Syn***tactic ***Tok***en. \
+   * Determines that all strings in a set are semantically equal to one another in a data format. It consists of valid tokens alongside their preferred index. The preferred index is strictly considered when 2 token lies adjacent (consecutively appear in a certain data format) to one another e.g `key=:value` in a `.properties` data format.
+   */
+  export type SynTok = {
+    readonly tokens: readonly string[];
+    readonly pref: readonly number[];
+  }
+  export type IsValid<T> = (token: T) => boolean;
+  /**May be used in place of {@link SynTok `SynTok`} for characters that need complex handling */
+  export type Validator = IsValid<string>;
   /**
    * Parses the given `text` argument into a type given by the `format.data()` and returns that value. Althogh this method can probably be used to parse complex textual data, it is meant for simple single text.
    * @param {string} text the value to be parsed
@@ -97,8 +119,8 @@ namespace parser {
      * @param {Error|undefined} cause the error that caused this object to be thrown
      */
     constructor(public readonly token: Token, cause?: Error) {
-      super(util.isValid(cause) ? `The token after '${token.value}' was not parsed because of the following: ` :
-        `Unexpected token "${token.value}" at line: ${token.lineStart}, position: ${token.startPos}`,
+      super((util.isValid(cause) ? `The token after '${token.value}' was not parsed because of the following: ` :
+        `The type ${JSON.stringify(token.type)} was an unexpected token "${token.value}" at line: ${token.lineStart}, position: ${token.startPos}`) + "\tat: " + token.lineStart + ":" + token.startPos,
         cause
       );
     }
@@ -151,10 +173,10 @@ namespace parser {
    * - `*` will be identified as an operator (and a binary one at that!)
    * - `1` and `9` will be identified as partial units that makeup a number
    * - ... and so on
-   * Comparison is also provided via extension of the {@link util.Equalizer} interface so that users may compare 2 types for equality so that `3` is equal to
+   * Comparison is also provided via extension of the {@link util.Predicatable} interface so that users may compare 2 types for equality so that `3` is equal to
    * `19` but is not equal to `1` and `9` individually as `1` and `9` are number unit types and not numbers themselves. This the purpose of the `id` property.
    */
-  export interface Type extends util.Equalizer {
+  export interface Type extends util.Predicatable {
     /**
      * A unique identifier for this type. It is recommended that this be a string
      * or a number. Basically it should be a value that can be uniquely identified.
@@ -181,7 +203,7 @@ namespace parser {
      * ```
      * The first token here (`20`) is a number token and a prefix. It usually has the highest precedence.
      * The next is a unary postfix (`!`) whose precedence is of no effect as the next token is not a postfix
-     * (i.e unless both types are {@link util.Equalizer equal}, precedence is not invoked), as such,
+     * (i.e unless both types are {@link util.Predicatable equal}, precedence is not invoked), as such,
      * will be read immediately alongside it's predecessor (`20`). As the lexer continues to read tokens, all token
      * types must have a precedence higher than 0. The following list is a precedence table of the above expression:
      * 1. `20`  --> highest
@@ -233,7 +255,7 @@ namespace parser {
    * property can, hence a token's intrinsic worth is it's `type` and `value` property. The rest properties may be provided for proper error construction and 
    * debugging purposes.
    */
-  export interface Token {
+  export interface Token extends util.Predicatable, util.Hashable, util.Comparable<Token> {
     /**
      * The begining of the line from which the token
      * was read. The first value is generally 1.
@@ -609,6 +631,9 @@ namespace parser {
    * This object is expected to be immutable such that no changes should be made to it to alter it's properties after it has been instantiated.
    */
   export interface Syntax {
+    // tab: string;
+    // newLine: string;
+    // esc: string; // the token used for escaping another token where it can also escape itself
     /**
      * Gets the appropriate `Command` that will be used for parsing a
      * specific token into an expression. Care should be taken so that no `Type`
@@ -706,7 +731,7 @@ namespace parser {
     TV = string,
   > implements GParser<E, S, GLexer<GToken<TV>, S>>
   {
-    private ii = 0;
+    // private ii = 0;
     // parse(lexer: GLexer<GToken<TV>, S>, syntax: S): E;
     /**
      * Prompts the provided Lexer for tokens and parses the results into an expression.
@@ -810,8 +835,7 @@ namespace parser {
       params: P
     ): GToken<TV> {
       const t = this.readAndPeek(0, l, s, params);
-      // if (!t.type!.equals(expected)) throw new SyntaxError(t);
-      if (!t.type!.equals(expected)) throw new Error(`Expected: ${expected} but got ${t.type} as ${t.value}.\n at line: ${t.lineStart}, position: ${t.startPos}`);
+      if (!t.type!.equals(expected)) throw new SyntaxError(t, new ParseError(`Expected: ${JSON.stringify(expected)} but got ${JSON.stringify(t.type)} as ${t.value}.\n at line: ${t.lineStart}, position: ${t.startPos}`));
       return this.readAndPop(l, s, params);
     }
 
