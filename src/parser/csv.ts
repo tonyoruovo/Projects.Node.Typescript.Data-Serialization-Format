@@ -1094,6 +1094,29 @@ namespace csv {
       super();
       this.length = value.length;
     }
+    equals(obj?: object | undefined): boolean {
+      if(obj instanceof Token)
+      return (this.lineStart == obj.lineStart && this.lineEnd == obj.lineEnd && this.startPos === obj.startPos
+      && this.type.equals(obj.type) && this.value === obj.value);
+      return false;
+    }
+    hashCode32(): number {
+      return utility.hashCode32(true, utility.asHashable(this.value), utility.asHashable(this.type.id), utility.asHashable(this.type.precedence), utility.asHashable(this.startPos), utility.asHashable(this.lineEnd), utility.asHashable(this.lineStart));
+    }
+    compareTo(obj?: parser.Token | undefined): utility.Compare {
+      if(utility.isValid(obj)){
+        let by = utility.compare(this.lineStart, obj!.lineStart);
+        if(by !== 0) return by;
+        by = utility.compare(this.lineEnd, obj!.lineEnd);
+        if(by !== 0) return by;
+        by = utility.compare(this.startPos, obj!.startPos);
+        if(by !== 0) return by;
+        by = utility.asCompare(utility.hashCode32(true, utility.asHashable(this.type.id), utility.asHashable(this.type.precedence)));
+        if(by !== 0) return by;
+        return utility.compare(this.value, obj!.value);
+      }
+      return 1;
+    }
     public override toString() {
       return JSON.stringify(
         { token: this.value, type: this.type.toString() },
@@ -1757,7 +1780,7 @@ namespace csv {
       return utility.compare(this.hashCode32(), obj?.hashCode32());
     }
     equals(obj?: object | undefined): boolean {
-      if (obj instanceof FieldExpression) return this.compareTo(obj) === 0;
+      if (obj instanceof FieldExpression) return this.data === obj.data;
       return false;
     }
     hashCode32(): number {
@@ -1783,11 +1806,8 @@ namespace csv {
     debug(): string {
       return this.open + this.content.debug() + this.close;
     }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
     equals(obj?: object | undefined): boolean {
-      if (obj instanceof QuotedExpression) return this.compareTo(obj) === 0;
+      if (obj instanceof QuotedExpression) return this.open === obj.open && this.content.equals(obj.content) && this.close === obj.close;
       return false;
     }
     hashCode32(): number {
@@ -1817,12 +1837,9 @@ namespace csv {
     debug(): string {
       return this.pre.debug() + this.sep + this.post.debug();
     }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
     equals(obj?: object | undefined): boolean {
       if (obj instanceof SeparatorExpression)
-        return this.compareTo(obj as SeparatorExpression) === 0;
+        return this.pre.equals(obj.pre) && this.sep === obj.sep && this.post.equals(obj.post);
       return false;
     }
     hashCode32(): number {
@@ -1850,11 +1867,8 @@ namespace csv {
     debug(): string {
       return this.left.debug().concat(this.eol);
     }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
     equals(obj?: object | undefined): boolean {
-      if (obj instanceof RecordExpression) return this.compareTo(obj) === 0;
+      if (obj instanceof RecordExpression) return this.left.equals(obj.left) && this.eol === obj.eol;
       return false;
     }
     hashCode32(): number {
@@ -1931,7 +1945,7 @@ namespace csv {
       return new StringFormat(this.#value.split("").reverse().join(""));
     }
     equals(another: expression.GFormat<Expression, string>): boolean {
-      if (another instanceof StringFormat) return this.compareTo(another) === 0;
+      if (another instanceof StringFormat) return this.#value === another.#value;
       return false;
     }
     modifications: number;
@@ -1961,11 +1975,6 @@ namespace csv {
         null,
         2
       );
-    }
-    compareTo(
-      obj?: expression.GFormat<Expression, string> | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
     }
   }
   /**
@@ -2134,7 +2143,9 @@ namespace csv {
       return new JSFormat(this.#value.reverse());
     }
     equals(another: expression.GFormat<Expression, json.List>): boolean {
-      return this.compareTo(another) === 0;
+      if(another instanceof JSFormat)
+      return this.#value === another.#value;
+      return false;
     }
     /**
      * @summary Returns the csv document that has been formatted as an in-memory json
@@ -2165,11 +2176,6 @@ namespace csv {
     }
     toJSON(): string {
       return JSON.stringify(this, null, 2);
-    }
-    compareTo(
-      obj?: expression.GFormat<Expression, json.List> | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
     }
   }
   /**A csv format that writes to a file */
@@ -2283,7 +2289,9 @@ namespace csv {
       return this;
     }
     equals(another: expression.GFormat<Expression, fs.ReadStream>): boolean {
-      return this.compareTo(another) === 0;
+      if(another instanceof FileFormat)
+      return this.#ws!.path === another.#ws!.path;
+      return false;
     }
     /**
      * @summary Gets all the data in this `Format` from a stream
@@ -2322,11 +2330,6 @@ namespace csv {
     }
     toJSON(): string {
       return "";
-    }
-    compareTo(
-      obj?: expression.GFormat<Expression, fs.ReadStream> | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
     }
   }
   export class Converter extends parser.Converter<
