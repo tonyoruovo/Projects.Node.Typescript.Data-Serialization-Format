@@ -50,7 +50,7 @@ namespace expression {
    * Thrown when an error is detected in the {@link Expression}
    * interface
    */
-  export class ExpressionError extends TypeError implements util.Equalizer {
+  export class ExpressionError extends TypeError implements util.Predicatable {
     /**
      * Constructor the `ExpressionError` class
      * @param {string} msg a string detailing the reason for the error
@@ -69,7 +69,7 @@ namespace expression {
    * Thrown by the implementors of the {@link Format} interface
    * to indicate an error in the format or in one of the methods.
    */
-  export class FormatError extends TypeError implements util.Equalizer {
+  export class FormatError extends TypeError implements util.Predicatable {
     /**
      * Constructor the `FormatError` class
      * @param {string} msg a string detailing the reason for the error
@@ -109,8 +109,7 @@ namespace expression {
    * approach causes is meant to reduce memory footprints.
    */
   export interface Expression
-    extends util.Comparable<Expression>,
-      util.Equalizer,
+    extends util.Predicatable,
       util.Hashable {
     /**
      * Formats this expression to the given format. The recommended
@@ -302,7 +301,7 @@ namespace expression {
    * on any method if an incompatible data is attempted to be
    * formatted by a user. Loggers, prettyfiers and minifiers may be provided however, their implementation is limited in this version and very experimental.
    */
-  export interface Format extends util.Equalizer, util.Hashable {
+  export interface Format extends util.Predicatable {
     /**
      * The in-memory representation of the data. This is either
      * a string, number, boolean, array or object so that it is
@@ -412,8 +411,7 @@ namespace expression {
    * @template D the in-memory type of this format
    */
   export interface GFormat<T extends Expression, D>
-    extends Format,
-      util.Comparable<GFormat<T, D>> {
+    extends Format {
     /**
      * Parses the argument into a result and appends the result
      * to this object. This is a mutator.
@@ -449,7 +447,7 @@ namespace expression {
    * A typical way of implementing this interface is by extending as also as
    * an expression.
    */
-  export interface Evaluatable extends util.Equalizer {
+  export interface Evaluatable extends util.Predicatable {
     /**
      * Computes this object and returns a valid `Expression` which represents the
      * result of the evalulation.
