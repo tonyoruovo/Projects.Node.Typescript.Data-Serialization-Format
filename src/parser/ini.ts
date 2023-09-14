@@ -5,29 +5,7 @@ import expression from "./expression.js";
 import json from "./json.js";
 import parser from "./parser.js";
 import iconv from "iconv-lite";
-/**
- * #### Examples
- * - .ini
- * - .conf
- * - .cfg
- * - .desktop
- * - git config file
- * - php config file
- * 
- * #### tokens
- * - `[` --> *section start*
- * - `'` --> *quote*
- * - `"` --> *double quote*
- * - **_plain text_** --> *untokenised string of characters*
- * - `'` --> *quote end*
- * - `"` --> *double quote end*
- * - `.` --> *sub-section*
- * - `]` --> *section end*
- * - `;` --> *comment*
- * - `=` --> *assignment*
- * - `\` --> *escape*
- * - **_escaped text_** --> *escaped* - text precede by an *escape*
- * 
+/** 
  * @summary Defines the constituents of the ini pipeline.
  * @description
  * The ini pipeline constitutes tokenisers (lexers) for tokenising text and json data; a parser which translates the
@@ -36,10 +14,14 @@ import iconv from "iconv-lite";
  * @example ### An example of an ini file:
  * ```ini
  * ; The start of this config
+ * \u2023\u0020\u053b\uabe0ReallyNot=\x3abc\uabcd\xfadeTrue life\u0a20
  * [Global]
  * prop1 = 12345
+ * prop1=12345
+ * prop2="string"
  * prop2 = "string"
  * prop3 = false
+ * prop3=false
  * [Paths]
  * "\=unix\=" = "C:\\path\\to\\file\\"
  * config = {unix}/config
@@ -52,10 +34,10 @@ import iconv from "iconv-lite";
  * mostly = great
  * ```
  * @remarks
+ * All new lines must be `\n`. `\r\n` is not supported and is bound to cause errors during parsing.
  * Recfiles and toml are currently unsupported.\
  * \
- * Although a syntax object can be configured to parse `.properties` files, files containing the `[` or`]` characters in their
- * key/value will cause the parser to fail. Hence `.properties` files need their own parsing pipeline.
+ * Although a syntax object can be configured to parse `.properties` files, files using more than one space as a delimiter cannot be parsed. Hence `.properties` files need their own parsing pipeline.
  */
 namespace ini {
     /**
@@ -72,6 +54,13 @@ namespace ini {
         /**A directive for the parser to throw if a duplicate property is found */
         THROW = 3
     }
+    /**
+     * Preocess the given text by escaping all characters that need to be escaped using {@link Syntax.escape.isSpecial `Syntax.escape.isSpecial`} as a check.
+     * @param {string} text the source text to be escaped
+     * @param {Syntax} s a reference to a valid syntax with definition for escape
+     * @param {Format} f a format for it's logger reference
+     * @returns {string} the `string` argument escaped
+     */
     function processEscapables(text: string, s: Syntax, f: Format): string {
         if(!utility.isValid(s.escape)) return text;
         let val = "";
@@ -99,67 +88,121 @@ namespace ini {
         return isQuotable ? `"${val}"` : val;
     }
     /**
-     * Does the same function as {@link Format.append `Format.append`}.
+     * Does the same function as {@link Format.append `Format.append`}. The code here is called by {@link StringFormat.append `StringFormat.append`} and {@link FileFormat.append `FileFormat.append`}
      */
-    function append(f: Format<any>, data: Section, s?: Syntax, p?: Params, name = "") {
-        let coverSecName = false;
+    function append(f: Format<any>, data: Section, s?: Syntax, p?: Params) {
         for (const key in data.map) {
             if (data.map[key] instanceof Section){
-                // f.append('\n', s, p);
                 f.append(data.map[key].comments.preceding.length > 0 ? unwrapComments(data.map[key].comments, s) : "", s, p);
-                append(f, data.map[key] as Section, s, p, name.length > 0 ? `${name}.${processEscapables(key, s!, f)}` : `\n[${processEscapables(key, s!, f)}`);
+                if((data.map[key] as Section).fullname.length > 0)
+                f.append(`${s!.sectionOperators[0]}${(data.map[key] as Section).fullname.join((s!.nesting??{chars: [""]}).chars[0])}${s!.sectionOperators[1]}\n`);
+                append(f, data.map[key] as Section, s, p);
             } else if (data.map[key] instanceof Property){
-                if(name.length > 0 && !coverSecName) {
-					f.append(`${name}]`, s, p);
-					name = "";
-					if(data.comments.inline && data.comments.inline.length > 0)
-            			f.append(`${data.comments.inline}`, s, p);
-					f.append("\n", s, p);
-					coverSecName = true;
-				}
                 f.append((data.map[key] as Property), s, p);
-            } else throw new expression.ExpressionError(`Illegal value found at ${name}.${key}`);
-            // f.append('\n', s, p);
+            } else throw new expression.ExpressionError(`Illegal value found at ${key}`);
         }
-        if(name.length > 0 && !coverSecName) {f.append(`${name}]`, s, p); name = ""; f.append("\n", s, p); coverSecName = true;}
     }
+    /**
+     * Stringifies the comment from an expression so that it is attached to a section, properties and texts of a `.ini` data
+     * @param {{ preceding: readonly string[] }} comments the comment to be unwrapped
+     * @param {Syntax} s a reference to a valid syntax
+     * @returns {string} the comment as a `string`
+     */
     function unwrapComments(comments: { preceding: readonly string[] }, s?: Syntax) {
         // if(utility.isValid(s)) return s!.comments.chars[0] + comments.preceding.join("\n;").concat("\n");
         return comments.preceding.join("\n");
     }
+    /**
+     * Checks if the argument is an instance of `Text`.
+     * @param {Expression} e the expression to tested.
+     * @returns {boolean} whether or not the expression is an instance of {@link Text `Text`}.
+     */
     function isText(e: Expression): e is Text {
         return utility.isValid(e) && e instanceof Text;
     }
-    function skipBlankLines(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): void {
-        while(p.match(EOL, l, s, pa)) p.consume(EOL, l, s, pa);
-    }
-    function parseComment(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params): string[] {
-        const comments = Array<string>();
-        while (true) {
-            if(p.match(COMMENT, l, s, pa)) comments.push(p.consume(COMMENT, l, s, pa).value);
-            else if(p.match(SECTION_START, l, s, pa)) comments.push(p.consume(SECTION_START, l, s, pa).value);
-            else if(p.match(D_QUOTE, l, s, pa)) comments.push(p.consume(D_QUOTE, l, s, pa).value);
-            else if(p.match(QUOTE, l, s, pa)) comments.push(p.consume(QUOTE, l, s, pa).value);
-            else if(p.match(TEXT, l, s, pa)) comments.push(p.consume(TEXT, l, s, pa).value);
-            else if(p.match(SUB_SECTION, l, s, pa)) comments.push(p.consume(SUB_SECTION, l, s, pa).value);
-            else if(p.match(SECTION_END, l, s, pa)) comments.push(p.consume(SECTION_END, l, s, pa).value);
-            else if(p.match(ASSIGNMENT, l, s, pa)) comments.push(p.consume(ASSIGNMENT, l, s, pa).value);
-            else if(p.match(D_QUOTE_END, l, s, pa)) comments.push(p.consume(D_QUOTE_END, l, s, pa).value);
-            else if(p.match(QUOTE_END, l, s, pa)) comments.push(p.consume(QUOTE_END, l, s, pa).value);
-            else if(p.match(ESCAPE, l, s, pa)) comments.push(p.consume(ESCAPE, l, s, pa).value);
-            else if(p.match(ESCAPED, l, s, pa)) comments.push(p.consume(ESCAPED, l, s, pa).value);
-            else if(p.match(WHITESPACE, l, s, pa)) comments.push(p.consume(WHITESPACE, l, s, pa).value);
-            else if(p.match(EOL, l, s, pa)) break;
+    /**
+     * Skips the parsing a number of consequtive blank lines on a `.ini` data format
+     * @param {MutableLexer<any>} l a reference for a lexer
+     * @param {Syntax} s a reference for a syntax
+     * @param {Parser} p a reference for a parser
+     * @param {Params} pa a reference for a Params
+     * @returns {string} the lines that were skipped as a string
+     */
+    function skipBlankLines(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params) {
+        let x = "";
+        while(true) {
+            if(p.match(EOL, l, s, pa))
+            x += p.consume(EOL, l, s, pa).value;
+            else if(p.match(WHITESPACE, l, s, pa))
+            x += p.consume(WHITESPACE, l, s, pa).value;
+            else break;
         }
-        return comments;
+        return x;
     }
+    /**
+     * Skips the parsing a number of consequtive whitespaces on a `.ini` data format
+     * @param {MutableLexer<any>} l a reference for a lexer
+     * @param {Syntax} s a reference for a syntax
+     * @param {Parser} p a reference for a parser
+     * @param {Params} pa a reference for a Params
+     * @returns {string} the whitespaces that were skipped as a string
+     */
+    function skipWhiteSpace(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params) {
+        let x = "";
+        while(p.match(WHITESPACE, l, s, pa)) x += p.consume(WHITESPACE, l, s, pa).value;
+        return x;
+    }
+    /**
+     * Properly formats `.ini` comments to a string.
+     * @param {MutableLexer<any>} l a reference for a lexer
+     * @param {Syntax} s a reference for a syntax
+     * @param {Parser} p a reference for a parser
+     * @param {Params} pa a reference for a Params
+     * @param {string} com any pre parsed comment(s) to which the results will be contatenated
+     * @returns {string} all parsed comments as a `.ini` format string
+     */
+    function parseComment(l: MutableLexer<any>, s: Syntax, p: Parser, pa: Params, com: string): string {
+        let c = com;
+       while (true) {
+            if(p.match(COMMENT, l, s, pa)) c += (p.consume(COMMENT, l, s, pa).value);
+            else if(p.match(SECTION_START, l, s, pa)) c += (p.consume(SECTION_START, l, s, pa).value);
+            else if(p.match(D_QUOTE, l, s, pa)) c += (p.consume(D_QUOTE, l, s, pa).value);
+            else if(p.match(QUOTE, l, s, pa)) c += (p.consume(QUOTE, l, s, pa).value);
+            else if(p.match(IDENTIFIER, l, s, pa)) c += (p.consume(IDENTIFIER, l, s, pa).value);
+            else if(p.match(SUB_SECTION, l, s, pa)) c += (p.consume(SUB_SECTION, l, s, pa).value);
+            else if(p.match(SECTION_END, l, s, pa)) c += (p.consume(SECTION_END, l, s, pa).value);
+            else if(p.match(ASSIGNMENT, l, s, pa)) c += (p.consume(ASSIGNMENT, l, s, pa).value);
+            else if(p.match(D_QUOTE_END, l, s, pa)) c += (p.consume(D_QUOTE_END, l, s, pa).value);
+            else if(p.match(QUOTE_END, l, s, pa)) c += (p.consume(QUOTE_END, l, s, pa).value);
+            else if(p.match(ESCAPE, l, s, pa)) c += (p.consume(ESCAPE, l, s, pa).value);
+            else if(p.match(ESCAPED, l, s, pa)) c += (p.consume(ESCAPED, l, s, pa).value);
+            else if(p.match(WHITESPACE, l, s, pa)) c += (p.consume(WHITESPACE, l, s, pa).value);
+            else if(p.match(EOL, l, s, pa) || p.match(EOF, l, s, pa)) break;
+        }
+        return c;
+    }
+    /**
+     * Constructs a comment object to be used for an expression
+     * @param {readonly string[]} preceding the preceding (possibly clock) comments
+     * @param {string} inline the inline comments
+     * @returns {{preceding: readonly string[], inline: string}} a properly constructed expression comment object
+     */
     function comments(preceding = Object.freeze(Array<string>()), inline: string = "") {
         return {preceding, inline}
     }
+    /**
+     * Returns a default empty comment object
+     * @returns {{preceding: readonly string[], inline: string}} a empty constructed expression comment object
+     */
     function emptyComment() {
         return comments();
     }
-    function mergeTokens(t: Token[]){
+    /**
+     * Creates a `.ini` string by concatenating and formatting the argument to a `string`.
+     * @param {Token[]} t a liste of tokens to be concatenated
+     * @returns {string} a formatted `.ini` string
+     */
+    function mergeTokens(t: Token[]): string{
         // return t.reduce((lexeme: string, tk: Token) => lexeme + tk.value, "");
         let text = "";
         for (let i = 0; i < t.length; i++) {
@@ -167,53 +210,71 @@ namespace ini {
         }
         return text;
     }
+    /**
+     * @summary A builder for a {@link Syntax `Syntax`}
+     * @description
+     * An object that builds a proper `Syntax` object and attempts to prevent ambiguity of `Syntax` during the process. It is strongly recommended that `Syntax` objects be created using this
+     * builder as certain bugs that would otherwise exists will be detectied in by this class e.g, a using a character as a {@link Syntax.nesting.chars nesting operator} and as a
+     * {@link Syntax.delimiters delimiter}\
+     * \
+     * The `Syntax` returned is readonly and may not be modified in any way. This includes it's properties. Any modification attempt made will either not hasve any effect or will throw an error.\
+     * \
+     * The following is the default object created by this builder when {@linkcode SyntaxBuilder.build} is called without any changes to the builder:
+     * @example
+     * ```js
+     * {
+     *   comments: {
+     *     retain: true,
+     *     chars: [';', '#'],
+     *     inline: true
+     *   },
+     *   duplicateDirective: {
+     *     section: DuplicateDirective.MERGE,
+     *     property: DuplicateDirective.MERGE
+     *   },
+     *   delimiters: [':', '='],
+     *   sectionOperators: ['[', ']'],
+     *   nesting: {
+     *     chars: ['.', '/'],
+     *     relative: true
+     *   },
+     *   escape: {
+     *     char: '\\',
+     *     quoted: true,
+     *     nonQuotedEsc: false,
+     *     isSpecial: s => ["\n", "\r", "\"", "'"].indexOf(s) >= 0 || this.sectionOperators.indexOf(s) >= 0 || this.comments.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || this.escape.char === s;
+     *     parse: s => {}//very long implementation here
+     *   },
+     *   parse: v => v.length > 0 ? v : null
+     * }
+     * ```
+     * @remark
+     * Whenever 'syntax' is mentioned in the docs of this class, it refers to the final object that will be returned when {@link SyntaxBuilder.build `SyntaxBuilder.build`} is called.
+     */
     export class SyntaxBuilder implements utility.Builder<Syntax> {
+        /**Represent the comment part*/
         private _com: {retain: boolean, chars: string[], inline: boolean} = {retain: true, chars: [';', "#"], inline: true};
+        /**the delimiters part*/
         private _del: string[] = [':', '='];
+        /**The section operators where the first index is the section start and the next is the section end token */
+        private _so = ["[", "]"] as [string, string];
+        /**the duplicate directives for section and property respectively */
         private _dd = {section: DuplicateDirective.MERGE, property: DuplicateDirective.MERGE};
+        /**A nullable section nesting part of a syntax*/
         private _nes?: {chars: string[], relative: boolean} = {chars: ['.', '/'], relative: true};
-        // private _glo: string = "";
-        // private _isSpecial = (s: string) => {
-        //     return ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || (utility.isValid(this._esc) && this._esc!.char === s);
-        // }
-        private _esc?: {quoted: boolean, nonQuotedEsc: boolean, unicode: string[], char: string, isSpecial: (((s: string) => boolean) | string[]), parse(e: string): string}
+        /**A nullable escape part of a syntax*/
+        private _esc?: {quoted: boolean, nonQuotedEsc: boolean, unicode: string[], char: string, isSpecial: (((s: string) => boolean) | string[]), parse: (e: string) => string}
             = {
                 char: "\\",
                 quoted: true,
                 nonQuotedEsc: false,
                 unicode: ['x', 'u'],
-                isSpecial: null as any as (((s: string) => boolean) | string[]),
-                parse(e: string) {
-                    let esc = e[1];
-                    switch(e){
-                        case "\\":
-                        case "'":
-                        case "\"":
-                        case ";":
-                        case "#":
-                        case "=":
-                        case ".":
-                        case "/":return e.length === 2 ? esc : e
-                        case "\n":
-                        case "n": return e.length === 2 ? "\n" : e;
-                        case "x":
-                        case "u":{
-                            const code = e.substring(2);
-                            if(code.length > 4 || !(/^[A-Fa-f-0-9]$/.test(code))) return e;
-                            return String.fromCodePoint(Number.parseInt(code));
-                        }
-                        case "0":
-                            return "\0";
-                        case "a": return "\a";
-                        case "b": return "\b";
-                        case "t": return "\t"
-                        case "r": return "\r"
-                        default:
-                    }
-                    return e;
-                }
+                isSpecial: null as any,
+                parse: null as any
             };
+            /**metadata part of a syntax*/
         private _md = {fileExt: "ini", isStandard: false, standard: "", mediaType: "text/plain, application/textedit, zz-application/zz-winassoc-ini"}
+        /**the parser function of this syntax*/
         private _p: (v: string) => json.Value = (v: string) => v.length > 0 ? v : null;
         /**the infix array that hold a 2-length tuple of `parser.GType<string>` and `Command`
          * the default is `[]`
@@ -244,11 +305,21 @@ namespace ini {
                 return x ? x[1] : undefined;
             }
         };
-        private _ensureUniqueness(s: string, truthy?: any) {
+        /**
+         * A check used by setter methods of this class to ensure that the argument is not a value already assigned to another token.
+         * @param {string} s the value to be checked
+         * @param {any} truthy a value, when truthy, asserts that the first argument is a string has a length of 1
+         * @returns {boolean}
+         * @throws {Error} if any of the properties has the value of the argument or if the length of the argument is greater than 1 and the second argument is truthy
+         */
+        private _ensureUniqueness(s: string, truthy?: any): asserts s is string {
             if(!utility.isValid(s)) throw Error("undefined cannot be used");
+            else if(typeof s !== "string" || (typeof s === "object" && !((s as String) instanceof String))) throw Error("only strings can be used");
             if(truthy && s.length > 1) throw Error("Only a single character is required");
             if(this._com!.chars.indexOf(s) >= 0)
             throw new Error(`${s} is not unique. It is used as a comment`); 
+            if(this._so.indexOf(s) >= 0)
+            throw new Error(`${s} is not unique. It is the section name operator`); 
             if(this._del.indexOf(s) >= 0)
             throw new Error(`${s} is not unique. It is used as a delimeter`); 
             if(utility.isValid(this._nes) && this._nes!.chars.indexOf(s) >= 0)
@@ -260,29 +331,63 @@ namespace ini {
             if(utility.isValid(this._esc) && this._esc!.char === s)
             throw new Error(`${s} is not unique. It is used as the escape character`); 
         }
+        /**
+         * Constructs a `SyntaxBuilder`. This specifically compiles all the prefix and infix commands needed by the syntax
+         */
         constructor(){
             this.addPrefixCommand(COMMENT, new ParseComment(parser.Direction.PREFIX));
             this.addPrefixCommand(EOL, new EndLine());//for blank line
             this.addPrefixCommand(ASSIGNMENT, new Assign(parser.Direction.PREFIX));//for lines that start with the assignment token
-            this.addPrefixCommand(TEXT, new ParseText());
+            this.addPrefixCommand(IDENTIFIER, new ParseText());
             this.addPrefixCommand(D_QUOTE, new ParseText());
             this.addPrefixCommand(QUOTE, new ParseText());
             this.addPrefixCommand(SECTION_START, new ParseSection());
-            this.addPrefixCommand(WHITESPACE, new ParseSpace());
+            // this.addPrefixCommand(SUB_SECTION, new ParseSubSection());
+            this.addPrefixCommand(SUB_SECTION, new ParseText());
+            // this.addPrefixCommand(WHITESPACE, new ParseSpace());
             this.addPrefixCommand(INIT, new Initialize());
             this.addInfixCommand(COMMENT, new ParseComment(parser.Direction.INFIX));// for inline
             this.addInfixCommand(ASSIGNMENT, new Assign(parser.Direction.INFIX));
             this.addInfixCommand(EOL, new EndLine());
-            this.addInfixCommand(WHITESPACE, new ParseSpace());
+            // this.addInfixCommand(WHITESPACE, new ParseSpace());
         }
-        public removeSupportForNesting() : SyntaxBuilder{
+        /**
+         * Removes support in the syntax for nesting in a section name by preventing setting of any of the {@link Syntax.nesting `Syntax.nesting`} properties.
+         * After this method returns, calling {@link addNestingChar `addNestingChar`} or {@link supportRelativeNesting `supportRelativeNesting`}
+         * will throw. Note that the `Syntax` built will have {@linkcode Syntax.nesting} as `undefined`.
+         *
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         */
+        public removeSupportForNesting() : SyntaxBuilder {
             this._nes = undefined;
             return this;
         }
+        /**
+         * Removes escape support for the syntax by preventing setting of any of the {@link Syntax.escape `Syntax.escape`} properties.
+         * After this method returns, calling any of the following:
+         * - {@link supportQuotedText `supportQuotedText`}
+         * - {@link supportNonQuotedEscape `supportNonQuotedEscape`}
+         * - {@link addUnicodeChar `addUnicodeChar`}
+         * - {@link setEscapeChar `setEscapeChar`}
+         * - {@link setIsSpecial `setIsSpecial`}
+         * - {@link setEscapeParser `setEscapeParser`}
+         * 
+         * will throw. \
+         * Note that the `Syntax` built will have {@linkcode Syntax.escape} as `undefined`.
+         *
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         */
         public removeSupportForEscape() : SyntaxBuilder{
             this._esc = undefined;
             return this;
         }
+        /**
+         * Prevents a character -- that was previously configured (default or otherwise) to be a one of the values used as a token for starting a comment, block or inline -- from being used as a {@link Syntax.comments.chars comment character}.
+         * @param {string} char the character to be removed from the syntax
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@link addCommentChar `addCommentChar`}
+         * @see {@linkcode Syntax.comments.chars}
+         */
         public removeCommentChar(char: string) : SyntaxBuilder{
             // this._com!.chars = this._com!.chars.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
             let ind = -1;
@@ -292,6 +397,13 @@ namespace ini {
             if(ind >= 0) this._com?.chars.splice(ind, 1);
             return this;
         }
+        /**
+         * Prevents a character -- that was previously configured (default or otherwise) to be a one of the values used as a token for delimiting between keys and values -- from being used as a {@link Syntax.delimiters delimiter}.
+         * @param {string} delim the character to be removed from the syntax
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@link addDelimiter `addDelimiter`}
+         * @see {@linkcode Syntax.delimiters}
+         */
         public removeDelimiter(delim: string) : SyntaxBuilder{
             // this._del = this._del.reduce((p, c) => c === delim ? p : [...p, c], Array<string>());
             let ind = -1;
@@ -301,6 +413,15 @@ namespace ini {
             if(ind >= 0) this._del.splice(ind, 1);
             return this;
         }
+        /**
+         * Prevents a character -- that was previously configured (default or otherwise) to be a one of the values used as a token for subsectioning -- from being used as a {@link Syntax.nesting.chars nesting operator}.
+         * May do nothing if {@link removeSupportForNesting `removeSupportForNesting`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @param {string} char the character to be removed from the syntax
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@link addNestingChar `addNestingChar`}
+         * @see {@linkcode Syntax.nesting.chars}
+         */
         public removeNestingChar(char: string) : SyntaxBuilder{
             // this._nes.chars = this._nes.chars.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
             try {
@@ -312,6 +433,15 @@ namespace ini {
             } catch (e) {}
             return this;
         }
+        /**
+         * Prevents a character -- that was previously configured (default or otherwise) to be a one of the values used as a token for specifying unicode characters -- from being used as a {@link Syntax.escape.unicode unicode character}.
+         * May do nothing if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @param {string} char the character to be removed from the syntax
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@link addUnicodeChar `addUnicodeChar`}
+         * @see {@linkcode Syntax.escape.unicode}
+         */
         public removeUnicodeChar(char: string) : SyntaxBuilder{
             try {
                 // this._esc!.unicode = this._esc!.unicode.reduce((p, c) => c === char ? p : [...p, c], Array<string>());
@@ -323,16 +453,45 @@ namespace ini {
             }catch(e) {}
             return this;
         }
+        /**
+         * Enables support for the string argument to be used as a {@linkcode Syntax.comments} character. This means that when
+         * the syntax is built, it will allow this value to be used to as a token to start block and inline comments.
+         * @param {string} char the value to be added. It is expected to be a single character not used anywhere else in this builder
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws {Error} if the argument assigned to another token elsewhere in this builder
+         * @see {@link removeCommentChar `removeCommentChar`}
+         * @see {@linkcode Syntax.comments.chars}
+         */
         public addCommentChar(char: string): SyntaxBuilder{
             this._ensureUniqueness(char, true);
             this._com.chars.push(char);
             return this;
         }
+        /**
+         * Enables support for the string argument to be used as a {@linkcode Syntax.delimiters} character. This means that when
+         * the syntax is built, it will allow this value to be used to as a token to delimit keys from values.
+         * @param {string} delim the value to be added. It is expected to be a single character not used anywhere else in this builder
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws {Error} if the argument assigned to another token elsewhere in this builder
+         * @see {@link removeDelimiter `removeDelimiter`}
+         * @see {@linkcode Syntax.delimiters}
+         */
         public addDelimiter(delim: string): SyntaxBuilder{
             this._ensureUniqueness(delim, true);
             this._del.push(delim);
             return this;
         }
+        /**
+         * Enables support for the string argument to be used as a {@linkcode Syntax.nesting.chars} character. This means that when
+         * the syntax is built, it will allow this value to be used to as a token delimit subsections in a section declaration.\
+         * May do nothing if {@link removeSupportForNesting `removeSupportForNesting`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @param {string} char the value to be added. It is expected to be a single character not used anywhere else in this builder
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws {Error} if the argument assigned to another token elsewhere in this builder
+         * @see {@link removeNestingChar `removeNestingChar`}
+         * @see {@linkcode Syntax.nesting.chars}
+         */
         public addNestingChar(char: string): SyntaxBuilder{
             this._ensureUniqueness(char, true);
             try {
@@ -340,6 +499,17 @@ namespace ini {
             } catch (e) {}
             return this;
         }
+        /**
+         * Enables support for the string argument to be used as a {@linkcode Syntax.escape.unicode} character. This means that when
+         * the syntax is built, it will allow this value to be used to as a token to specify that an escape is a unicode escape.\
+         * May do nothing if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @param {string} char the value to be added. It is expected to be a single character not used anywhere else in this builder
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws {Error} if the argument assigned to another token elsewhere in this builder
+         * @see {@link removeUnicodeChar `removeUnicodeChar`}
+         * @see {@linkcode Syntax.escape.unicode}
+         */
         public addUnicodeChar(char: string): SyntaxBuilder{
             this._ensureUniqueness(char, true);
             try {
@@ -347,10 +517,28 @@ namespace ini {
             } catch (e) {}
             return this;
         }
+        /**
+         * Retains and allows comments to be formatted during formatting.
+         * @param {boolean} b `true` to retain comments `false` otherwise
+         * @defaultValue `true`
+         * @default {true}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@linkcode Syntax.comments.retain}
+         */
         public retainComments(b: boolean) : SyntaxBuilder{
             this._com.retain = b;
             return this;
         }
+        /**
+         * Allows or disallows support for non-quoted text to have escaped characters/unicode
+         * @param {boolean} b `true` to allow escape for non-quoted text `false` otherwise
+         * @defaultValue `false`
+         * @default {false}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @see {@linkcode Syntax.escape.nonQuotedEsc}
+         */
         public supportNonQuotedEscape(b: boolean): SyntaxBuilder {
             try {
                 this._esc!.nonQuotedEsc = b;
@@ -359,10 +547,28 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * Allows or disallows support for inline comments
+         * @param {boolean} b `true` to allow inline comments `false` otherwise
+         * @defaultValue `true`
+         * @default {true}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@linkcode Syntax.comments.inline}
+         */
         public supportInline(b: boolean) : SyntaxBuilder{
             this._com.inline = b;
             return this;
         }
+        /**
+         * Allows or disallows support for relative nesting within a section declaration
+         * @param {boolean} b `true` to allow relative nesting `false` otherwise
+         * @defaultValue `true`
+         * @default {true}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws if {@link removeSupportForNesting `removeSupportForNesting`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @see {@linkcode Syntax.nesting.relative}
+         */
         public supportRelativeNesting(b: boolean) : SyntaxBuilder{
             try {
                 this._nes!.relative = b;
@@ -376,6 +582,16 @@ namespace ini {
         //     this._glo = g;
         //     return this;
         // }
+        /**
+         * Allows or disallows support for quoted text
+         * @param {boolean} b `true` to allow quoted text `false` will parse quotes and duouble quotes along with the text.
+         * @defaultValue `true`
+         * @default {true}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @see {@linkcode Syntax.escape.quoted}
+         */
         public supportQuotedText(b: boolean) : SyntaxBuilder{
             try {
                 this._esc!.quoted = b;
@@ -384,6 +600,17 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * Sets the character used for {@link Syntax.escape.char `escaping`}.
+         * @param {string} char the value to be used for escaping
+         * @defaultValue `'\\'`
+         * @default {'\\'}
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @throws {Error} if the argument has been assigned to another token in this builder
+         * @see {@linkcode Syntax.escape.char}
+         */
         public setEscapeChar(char: string) : SyntaxBuilder{
             this._ensureUniqueness(char, true);
             try {
@@ -393,6 +620,14 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * Sets the function that will parse escapes. See class declaration doc for the default.
+         * @param {(esc: string) => string} p a non-null value that is a function with a single string argument that returns a string
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @throws if {@link removeSupportForEscape `removeSupportForEscape`} was called on this builder instance and {@link clear `clear`} (with no falsy argument)
+         * or {@link rebuild `rebuild`} was not called after that and before this.
+         * @see {@linkcode Syntax.escape.parse}
+         */
         public setEscapeParser(p: (e: string) => string) : SyntaxBuilder{
             try {
                 this._esc!.parse = p??this._esc!.parse;
@@ -401,10 +636,24 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * Sets the function that will format text. Will not set anything if the argument is `null` or `undefined`.
+         * @param {(esc: string) => json.Value} p a non-null value that is a function with a single string argument that returns a `json.Value` type.
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@linkcode Syntax.parse}
+         */
         public setFormatParser(p: (v: string) => json.Value) : SyntaxBuilder{
             this._p = p??this._p;
             return this;
         }
+        /**
+         * Sets the {@linkplain Syntax.duplicateDirective} for properties and/or sections. See calss declaration docs for the defaults.
+         * @param {DuplicateDirective} dd a non-null {@linkcode DuplicateDirective} value
+         * @param {boolean | undefined} forProperty a value when `undefined` sets both the section and property to the first argument
+         * else if it is `true` set for the property only while `false` sets for the section only.
+         * @returns {SyntaxBuilder} this same builder object for method chaining
+         * @see {@linkcode Syntax.duplicateDirective}
+         */
         public setDuplicateDirective(dd: DuplicateDirective, forProperty?: boolean): SyntaxBuilder {
             if(utility.isValid(forProperty)) {
                 if(forProperty) this._dd.property = dd;
@@ -415,7 +664,14 @@ namespace ini {
             }
             return this;
         }
-        private _pushOrOverite(map: [parser.GType<string>, Command][], t: parser.GType<string>, cmd: Command){
+        /**
+         * Attempts to push the second and third argument into the given array. If the non-array arguments already exist in the array, then an overwrite operation is performed.
+         * @param {[parser.GType<string>, Command][]} map an array for type/command tuples
+         * @param { parser.GType<string>} t the type to be added to the array
+         * @param {Command} cmd the command to be added with the type
+         * @returns {void} does not return anything
+         */
+        private _pushOrOverite(map: [parser.GType<string>, Command][], t: parser.GType<string>, cmd: Command): void{
           for (let i = 0; i < map.length; i++)
             if(map[i][0].equals(t)) {
               map[i] = [t, cmd];
@@ -423,29 +679,95 @@ namespace ini {
             }
           map.push([t, cmd]);
         }
+        /**
+         * @summary registers an infix {@link Command}
+         * @description
+         * Registers a {@link parser.GType<string>} (which is compatible with infix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+         * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+         * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+         * the previous call with that `parser.GType<string>`.
+         * @remark
+         * There are no defaults for infix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
+         * infix `Command`s
+         * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible infix type.
+         * @param {Command} cmd the command which can parse infix tokens into {@link Expression expression(s)}
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see parser.Syntax.getCommand
+         */
         public addInfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
             // this._infCmdlets.push([type, cmd]);
             this._pushOrOverite(this._infCmdlets, type, cmd);
             return this;
         }
+        /**
+         * Removes the infix command registered with the given type
+         * @param {parser.GType<string>} type the type of command to be removed
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see addInfixCommand
+         */
         public removeInfixCommand(type: parser.GType<string>): SyntaxBuilder {
             this._infCmdlets = this._infCmdlets.filter(v => !v[0].equals(type));
             return this;
         }
+        /**
+         * @summary registers a prefix {@link Command}
+         * @description
+         * Registers a {@link parser.GType<string>} (which is compatible with prefix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+         * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+         * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+         * the previous call with that `parser.GType<string>`.
+         * @remark
+         * There are no defaults for prefix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
+         * prefix `Command`s
+         * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible prefix type.
+         * @param {Command} cmd the command which can parse prefix tokens into {@link Expression expression(s)}
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see parser.Syntax.getCommand
+         */
         public addPrefixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
             // this._infCmdlets.push([type, cmd]);
             this._pushOrOverite(this._preCmdlets, type, cmd);
             return this;
         }
+        /**
+         * Removes the prefix command registered with the given type
+         * @param {parser.GType<string>} type the type of command to be removed
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see addPrefixCommand
+         */
         public removePrefixCommand(type: parser.GType<string>): SyntaxBuilder {
             this._preCmdlets = this._preCmdlets.filter(v => !v[0].equals(type));
             return this;
         }
+        /**
+         * @summary registers a postfix {@link Command}
+         * @description
+         * Registers a {@link parser.GType<string>} (which is compatible with postfix tokens) with the corresponding {@link Command} that can parse that `parser.GType<string>`.
+         * This method should not be called more than once for the same `parser.GType<string>` as that would cause ambiguity on the built {@link Syntax `Syntax`}
+         * object such that each query for a `Command` may have undefined behaviour, as such, consecutive calls of this method with the same `parser.GType<string>` invalidates
+         * the previous call with that `parser.GType<string>`.
+         * @remark
+         * Calling this method has no effect on the built `Syntax` as {@link Parser} does not support {@link parser.Direction.POSTFIX} therefore ignore this
+         * method. \
+         * \
+         * There are no defaults for postfix commands, if there are not available by the time {@link build} is called the built `Syntax` will have no access to
+         * postfix `Command`s
+         * @param {parser.GType<string>} type the type with which to query this command. This is expected to be a compatible postfix type.
+         * @param {Command} cmd the command which can parse postfix tokens into {@link Expression expression(s)}
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see Syntax.getCommand
+         */
         public addPostfixCommand(type: parser.GType<string>, cmd: Command): SyntaxBuilder {
             // this._infCmdlets.push([type, cmd]);
             this._pushOrOverite(this._posCmdlets, type, cmd);
             return this;
         }
+        /**
+         * Removes the postfix command registered with the given type. In practice, this method does nothing
+         * @param {parser.GType<string>} type the type of command to be removed
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @see addPostfixCommand
+         */
         public removePostfixCommand(type: parser.GType<string>): SyntaxBuilder {
             this._posCmdlets = this._posCmdlets.filter(v => !v[0].equals(type));
             return this;
@@ -496,9 +818,9 @@ namespace ini {
           return this;
         }
         /**
-         * Sets the {@link Syntax.esc.isSpecial isSpecial property} in the syntax to be built.
+         * Sets the {@link Syntax.escape.isSpecial isSpecial property} in the syntax to be built.
          * @remark
-         * The default is a function that returns `true` if the argument is the comment character, a delimiter, the escape character or is one of the following: `'\r'`, `'\n'`, `'['`, `']'`, `'\''`, `'"'`.
+         * The default is a function that returns `true` if the argument is the comment character, a {@link Syntax.sectionOperators section name operator}, a delimiter, the escape character or is one of the following: `'\r'`, `'\n'`, `'\''`, `'"'`.
          * @param {string[] | ((e: string) => boolean)} s an array of special characters or a function which returns `true` if a special character is the argument
          * @returns {SyntaxBuilder} the same builder object for method chaining
          */
@@ -510,6 +832,37 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * Sets the first index of the {@link Syntax.sectionOperators `Syntax.sectionOperators`} array in the syntax to be built.
+         * @remark
+         * The default is a `[`.
+         * @param {string} sectionStart  A single string used for starting the section name declaration of an `ini` section
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @throws {Error} throws if the argument is `undefined`, `null`, length > 0, is not a string or has been used elsewhere in this builder.
+         */
+        public setSectionStart(sectionStart: string) : SyntaxBuilder {
+            this._ensureUniqueness(sectionStart, true);
+            this._so[0] = sectionStart??this._so[0];
+            return this;
+        }
+        /**
+         * Sets the second index of the {@link Syntax.sectionOperators `Syntax.sectionOperators`} array in the syntax to be built.
+         * @remark
+         * The default is a `]`.
+         * @param {string} sectionEnd A single string used for ending the section name declaration of an `ini` section
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @throws {Error} throws if the argument is `undefined`, `null`, length > 0, is not a string or has been used elsewhere in this builder.
+         */
+        public setSectionEnd(sectionEnd: string) : SyntaxBuilder {
+            this._ensureUniqueness(sectionEnd);
+            this._so[1] = sectionEnd??this._so[1];
+            return this;
+        }
+        /**
+         * Clears this builder of all the values set into it by either reseting to the default or completely wiping all values. If the latter is chosen then Every value has to manually set again or this might not build. 
+         * @param toDefault `true` for a reset `false` for a complete wipe. This is an optional value that defaults to `true`.
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         */
         public clear(toDefault = true): SyntaxBuilder {
             // this._glo = "";
             this._getCmd = (d: parser.Direction, type: parser.GType<string>): Command | undefined => {
@@ -532,6 +885,7 @@ namespace ini {
                 this._md = {fileExt: "ini", isStandard: false, standard: "", mediaType: "text/plain, application/textedit, zz-application/zz-winassoc-ini"};
                 this._com = {retain: true, chars: [';', "#"], inline: true};
                 this._del = [':', '='];
+                this._so = ['[', ']'];
                 this._dd = {section: DuplicateDirective.MERGE, property: DuplicateDirective.MERGE};
                 this._nes = {chars: ['.', '/'], relative: true};
                 this._esc = {
@@ -576,6 +930,7 @@ namespace ini {
                 this._md = {fileExt: "", isStandard: false, standard: "", mediaType: ""};
                 this._dd = {section: DuplicateDirective.THROW, property: DuplicateDirective.THROW};
                 this._del = [];
+                this._so = [undefined as any, undefined as any];
                 this._com = {retain: false, chars: [], inline: false};
                 this._nes = undefined;
                 this._esc = undefined;
@@ -583,12 +938,44 @@ namespace ini {
             }
             return this;
         }
+        /**
+         * @inheritdoc
+         * @returns {Syntax}
+         */
         public build(): Syntax {
             if(utility.isValid(this._esc)){
                 if(this._esc!.nonQuotedEsc)
-                    this.addPrefixCommand(ESCAPE, new ParseInitialEscape());
+                    this.addPrefixCommand(ESCAPE, new ParseText/*ParseInitialEscape*/());
                 if(!utility.isValid(this._esc!.isSpecial))
-                    this._esc!.isSpecial = (s: string) => ["\n", "\r", "[", "]", "\"", "'"].indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || this._esc!.char === s;
+                    this._esc!.isSpecial = (s: string) => ["\n", "\r", "\"", "'"].indexOf(s) >= 0 || this._so.indexOf(s) >= 0 || this._com.chars.indexOf(s) >= 0 || this._del.indexOf(s) >= 0 || this._esc!.char === s;
+                if(!utility.isValid(this._esc!.parse))
+                    this._esc!.parse = (e: string) => {
+                        let esc = e[1];
+                        switch(esc){
+                            case "\\":
+                            case "'":
+                            case '"':return e.length === 2 ? esc : e
+                            case "\n":
+                            case "n": return e.length === 2 ? "\n" : e;
+                            case "0":
+                                return "\0";
+                            case "a": return "\a";
+                            case "b": return "\b";
+                            case "t": return "\t"
+                            case "r": return "\r"
+                            default:
+                        }
+                        if(this._com.chars.indexOf(esc) && e.length === 2) return esc;
+                        else if(this._del.indexOf(esc) && e.length === 2) return esc;
+                        else if(this._so.indexOf(esc) && e.length === 2) return esc;
+                        else if(utility.isValid(this._nes) && this._nes!.chars.indexOf(esc) && e.length === 2) return esc;
+                        else if(this._esc!.unicode.indexOf(esc) >= 0) {
+                            const code = e.substring(2);
+                            if(code.length > 4 || !(/^[A-Fa-f-0-9]+$/.test(code))) return e;
+                            return String.fromCodePoint(Number.parseInt(code, 16));
+                        }
+                        return e;
+                    }
             }
             return Object.freeze({
                 metadata: {...this._md, encoding: "utf-8"},
@@ -597,30 +984,74 @@ namespace ini {
                     chars: Object.freeze(this._com!.chars)
                 },
                 delimiters: Object.freeze(this._del),
+                sectionOperators: Object.freeze(this._so),
                 nesting: utility.isValid(this._nes) ? {...this._nes!, chars: Object.freeze(this._nes!.chars)} : undefined,
-                duplicateDirective: this._dd,
+                duplicateDirective: Object.freeze(this._dd),
                 escape: utility.isValid(this._esc) ? {...this._esc!, unicode: Object.freeze(this._esc!.unicode)} : undefined,
                 parse: this._p,
                 getCommand: this._getCmd
             }) as Syntax;
         }
+        //Note that the 'encoding' property will not be copied
+        //none of the copied property are type-checked or checked for compatibility
+        //all null and undefined properties will be replaced by an empty vallue as an empty array or string
+        //the arg 'from' cannot be null or undefined or this will throw
+        /**
+         * @summary assigns all values from the syntax argument to the properties of this builder.
+         * @remark
+         * Note that the
+         * - `encoding` property will not be copied
+         * - none of the copied property are type-checked or checked for compatibility
+         * - all null and undefined properties will be replaced by an empty vallue as an empty array or string
+         * - the argument `from` cannot be `null` or `undefined` or this will throw
+         * @param {Syntax} from the syntax from which this builder will be built
+         * @returns {SyntaxBuilder} the same builder object for method chaining
+         * @throws {TypeError} if the argument is not a valud object
+         */
         public rebuild(from: Syntax): SyntaxBuilder {
-            this._md = from.metadata as any;
-            this._com = from.comments as typeof this._com;
-            this._esc = from.escape as typeof this._esc;
-            this._nes = from.nesting as typeof this._nes;
-            this._del = from.delimiters as typeof this._del;
-            // this._glo = from.globalName;
-            this._dd = from.duplicateDirective;
+            if(!utility.isValid(from)) throw new Error("undefined not allowed here")
+            //metadata
+            this._md.fileExt = (from.metadata??{fileExt: ""}).fileExt;
+            this._md.isStandard = (from.metadata??{isStandard: false}).isStandard;
+            this._md.mediaType = (from.metadata??{mediaType: ""}).mediaType;
+            this._md.standard = (from.metadata??{standard: ""}).standard;
+            
+            //comments
+            this._com.chars = [...(from.comments??{chars: []}).chars];
+            this._com.retain = (from.comments??{retain: false}).retain;
+            this._com.inline = (from.comments??{inline: false}).inline;
+            
+            //escape
+            (this._esc ??= {} as any).nonQuotedEsc = (from.escape??{nonQuotedEsc: false}).nonQuotedEsc;
+            (this._esc ??= {} as any).quoted = (from.escape??{quoted: false}).quoted;
+            (this._esc ??= {} as any).char = (from.escape??{char: ""}).char;
+            (this._esc ??= {} as any).unicode = [...(from.escape??{unicode: []}).unicode];
+            (this._esc ??= {} as any).isSpecial = (from.escape??{isSpecial: []}).isSpecial;
+            (this._esc ??= {} as any).parse = (from.escape??{parse: (s: string) => s}).parse;
+
+            //nesting
+            (this._nes ??= {} as any).chars = [...(from.nesting??{chars: []}).chars];
+            (this._nes ??= {} as any).relative = (from.nesting??{relative: false}).relative;
+
+            //delimiters
+            this._del = [...from.delimiters] as typeof this._del;
+
+            //section operators
+            this._so = [...from.sectionOperators];
+
+            //duplicate directive
+            this._dd = {...from.duplicateDirective};
+
             this._p = from.parse;
             this._getCmd = from.getCommand;
             return this;
         }
     }
     /**
-     * Duplicate properties merge values and duplicate sections merge their properties
+     * A specialized `.ini` data extension of the {@link parser.Syntax `parser.Syntax`} interface that defines the
+     * `.ini` syntax that this pipeline uses.
      */
-    export interface Syntax extends parser.GSyntax<Type, Command>{
+    export interface Syntax extends parser.GSyntax<Type, Command> {
         /**
          * An object that specifies how comments are parsed
          */
@@ -680,8 +1111,16 @@ namespace ini {
          * ; ... and so on
          * ```
          * is a valid syntax
+         * @type {string[]}
+         * @readonly
          */
         readonly delimiters: readonly string[];
+        /**
+         * A 2-length tuple that specifies the operators used for starting and ending a section identifier. For instance, vanilla `ini` uses `[sectionName]`, hence the first index contains `[` and the second contains `]`.
+         * @type {[string, string]}
+         * @readonly
+         */
+        readonly sectionOperators: readonly [string, string];
         /**If this is `null` or `undefined`, nesting is not considered, else if it is in a quoted string, then it must be escaped or an error is thrown */
         readonly nesting?: {
             /**
@@ -698,11 +1137,6 @@ namespace ini {
              */
             readonly relative: boolean
         };
-        /**The name for default parent section
-         * @type {string}
-         * @readonly
-         */
-        // readonly globalName: string;
         /**An object that specifies how escaped sequences are parsed. If `undefined` or `null`, then no escape will be supported */
         readonly escape?: {
             /**
@@ -772,29 +1206,26 @@ namespace ini {
          */
         parse(value: string): json.Value;
     }
+    /**
+     * A mutable visitor that holds variables for the parsing process.
+     */
     export class Params {
         /**
          * The current section's name i.e the name of a property of {@link global} that was last parsed
          * @type {string}
          */
         section: string[] = [];
-        /**An array of strings representing consecutiveline of comments. This value is empty the moment a {@link Section} or {@link Property} is parsed. */
+        /**An array of strings representing the most recent consecutive line of comments parsed. This value is empty the moment a {@link Section} or {@link Property} is parsed. */
         block = Array<string>();
-        /**inline comments as a `string`. This value is reset every time */
+        /**The most recent parsed inline comments as a `string`. This value is reset every time a new section, text or property is parsed */
         inline: string = "";
-        /**Defines the state of the parser when parsing inside of a section name as a `boolean` */
+        /**Defines themost recent state of the parser when parsing inside of a section name as a `boolean` */
         insideSecName = false;
         /**Specifies whether or not an assignment of a value to a key/name has been done */
         assigned = false;
-        /**inline comments complete with their line number and actual comment */
-        // inline: Map<number, string> = new Map();
     }
     /**
-     * - `'['` section start
-     * - `']'` section end
-     * - `'='` assignment within a property
-     * - `';'` `'#'` `'!'` comment start (comment may be retained by configuring the syntax so)
-     * - **text** these are the names of sections, properties and the value of a property.
+     * A concrete implementation of the {@link parser.GType `GType`}
      */
     class Type implements parser.GType<string> {
         /**
@@ -819,35 +1250,192 @@ namespace ini {
         }
     }
 
+    /**
+     * The type used for end-of-file tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const EOF: parser.GType<string> = new Type("-1", Number.MIN_SAFE_INTEGER);
+    /**
+     * The type used for end-of-line tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const EOL: parser.GType<string> = new Type("0", 1);
+    /**
+     * The type used for tokens that start a section's name. Used to signify the start of a section declaration.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const SECTION_START: parser.GType<string> = new Type("1", 2);
+    /**
+     * The type used for single quote tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const QUOTE: parser.GType<string> = new Type("2", 5);
+    /**
+     * The type used for double quote tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const D_QUOTE: parser.GType<string> = new Type("3", 5);
-    export const TEXT: parser.GType<string> = new Type("4", 5);
+    /**
+     * The type used for text tokens such as section names, keys and values.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
+    export const IDENTIFIER: parser.GType<string> = new Type("4", 5);
+    /**
+     * The type used for delimiting section names to show section nesting.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const SUB_SECTION: parser.GType<string> = new Type("5", 3);
+    /**
+     * The type used for ending a section declaraction.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const SECTION_END: parser.GType<string> = new Type("6", 1);
+    /**
+     * The type used for tokens that delimit between keys and their values.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const ASSIGNMENT: parser.GType<string> = new Type("7", 3);//Does not matter the precedence it has will will always be parsed with the `parse(0)` So it will be parsed as long as it's precedence is greater than 0
+    /**
+     * The type used for the comment tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const COMMENT: parser.GType<string> = new Type("8", 0);
+    /**
+     * The type used for single quote tokens that end an identifier when the same identifier was declared begining with a single quote.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const QUOTE_END: parser.GType<string> = new Type("9", 5);
+    /**
+     * The type used for double quotes tokens that end an identifier when the same identifier was declared begining with a double quotes.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const D_QUOTE_END: parser.GType<string> = new Type("10", 5);
+    /**
+     * The type used for escape tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const ESCAPE: parser.GType<string> = new Type("11", 5);
+    /**
+     * The type used for tokens preceded by the escape token.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const ESCAPED: parser.GType<string> = new Type("12", 5);
+    /**
+     * The type used for whitespace tokens.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const WHITESPACE: parser.GType<string> = new Type("13", 1);
+    /**
+     * A special type that creates the global section where unamed properties and allsections are stored.
+     * @type {parser.GType<string>}
+     * @constant
+     * @readonly
+     */
     export const INIT: parser.GType<string> = new Type("14", Number.MAX_SAFE_INTEGER);
 
+    /**
+     * @summary An object representing a valid lexeme in a `.ini` data format.
+     * @description
+     * A `Token` is concrete implementation of the {@link parser.GToken} interface where each token maps to a one or more lexeme in `.ini` data.
+     * A token contains all the data that helps 
+     */
     class Token implements parser.GToken<string> {
+        /**
+         * The length of a token
+         * @type {number}
+         * @readonly
+         * @constant
+         */
         public readonly length;
+        /**
+         * Constructs a `Token`, giving details such as the line and position (within the data format) from which it was formed
+         * @param {string} value the payload of this token containing the actual value of the data it carries
+         * @param {Type} type the type of the token. This is the main determinant of a token that differentiates one from another
+         * @param {number} lineStart the line within the data format that this token was assembled from
+         * @param {number} lineEnd the line within the data format that this token was assembled from
+         * @param {number} startPos the position within the line from which this token was assembled.
+         */
         constructor(
             public readonly value: string,
             public readonly type: Type,
             public readonly lineStart: number,
             public readonly lineEnd: number,
             public readonly startPos: number
-            // public readonly names?: string[]
         ){
             this.length = value.length;
         }
+        /**
+         * Test if the argument is the same `Token` object as `this`.
+         * @param {object | undefined} obj 
+         * @returns {boolean} `true` if the argument is a `Token` and is the same type, is in the same line, position as `this`. 
+         */
+        equals(obj?: object | undefined): boolean {
+          if(obj instanceof Token)
+          return (this.lineStart == obj.lineStart && this.lineEnd == obj.lineEnd && this.startPos === obj.startPos
+          && this.type.equals(obj.type));
+          return false;
+        }
+        /**
+         * Returns the hascode of this `Token`
+         * @returns {number} the hashcode of this token
+         */
+        hashCode32(): number {
+          return utility.hashCode32(true, utility.asHashable(this.value), utility.asHashable(this.type.id), utility.asHashable(this.type.precedence), utility.asHashable(this.startPos), utility.asHashable(this.lineEnd), utility.asHashable(this.lineStart));
+        }
+        /**
+         * Takes an optional {@linkcode parser.Token} argument and returns a value that specifies the ordering between `this` and the argument.
+         * @param {parser.Token | undefined} obj the value which `this` is tobe compared
+         * @returns {utility.Compare} a numerical value to specify ordering after comparison has been done.
+         * @see {@linkcode utility.Comparable}
+         */
+        compareTo(obj?: parser.Token | undefined): utility.Compare {
+          if(utility.isValid(obj)){
+            let by = utility.compare(this.lineStart, obj!.lineStart);
+            if(by !== 0) return by;
+            by = utility.compare(this.lineEnd, obj!.lineEnd);
+            if(by !== 0) return by;
+            by = utility.compare(this.startPos, obj!.startPos);
+            if(by !== 0) return by;
+            by = utility.asCompare(utility.hashCode32(true, utility.asHashable(this.type.id), utility.asHashable(this.type.precedence)));
+            if(by !== 0) return by;
+            return utility.compare(this.value, obj!.value);
+          }
+          return 1;
+        }
+        /**
+         * Gets a debug value for this `Token`.
+         * @returns {string} a debug string for this `Token`
+         */
         public toString() {
           return JSON.stringify(
             { token: this.value, type: this.type.toString() },
@@ -856,6 +1444,11 @@ namespace ini {
           );
         }
     }
+    /**
+     * @summary An object that creates `Token` objects from a `.ini` data format
+     * @description
+     * A specialised implementation of the {@linkcode parser.MutableLexer} interface. It allows new data to be added even after the initial one has been transformed into tokens.
+     */
     export interface MutableLexer<CH = string> extends parser.MutableLexer<Token, Syntax, CH> {
       end(syntax: Syntax, p: Params | any): void;
       process(chunk: CH, syntax: Syntax, p: Params | any): void;
@@ -903,10 +1496,10 @@ namespace ini {
                     do {
                         this.#manufacture(name.shift()!);
                     } while(name.length > 0);
-                    this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++));
+                    this.#manufacture(new Token(s.sectionOperators[1], SECTION_END, 0, 0, this._i++));
                     this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                 }
-                this.#manufacture(new Token(o !== null ? String(o) : "", TEXT, 0, 0, this._i++));
+                this.#manufacture(new Token(o !== null ? String(o) : "", IDENTIFIER, 0, 0, this._i++));
             } else if(Array.isArray(o)) {
                 for (let i = 0; i < o.length; i++) {
                     if(json.isAtomic(o[i])) {
@@ -914,41 +1507,41 @@ namespace ini {
                             do {
                                 this.#manufacture(name.shift()!);
                             } while(name.length > 0);
-                            this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.sectionOperators[1], SECTION_END, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
-                        this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(String(o[i]??""), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(String(o[i]??""), IDENTIFIER, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[i])) {
                         let array = o[i] as any[];
                         if(json.arrayIsAtomic(array)) for(let j = 0; j < array.length; j++) {
-                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(String(array[j]??""), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(String(array[j]??""), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         } else if(utility.isValid(s.nesting)) {
-                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            if(name.length < 1) name.push(new Token(s.sectionOperators[0], SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            name.push(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                             this._process(o[i], s, name);
                         } else {
-                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(JSON.stringify(o[i]), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[i]), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     } else if(typeof o[i] === "object") {
                         if(utility.isValid(s.nesting)) {
-                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            if(name.length < 1) name.push(new Token(s.sectionOperators[0], SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            name.push(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                             this._process(o[i], s, name);
                         } else {
-                            this.#manufacture(new Token(i.toString(), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(i.toString(), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(JSON.stringify(o[i]), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[i]), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     }
@@ -960,40 +1553,40 @@ namespace ini {
                             do {
                                 this.#manufacture(name.shift()!);
                             } while(name.length > 0);
-                            this.#manufacture(new Token("]", SECTION_END, 0, 0, this._i++));
+                            this.#manufacture(new Token(s.sectionOperators[1], SECTION_END, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
-                        this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(key, IDENTIFIER, 0, 0, this._i++));
                         this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                        this.#manufacture(new Token(String(o[key]??""), TEXT, 0, 0, this._i++));
+                        this.#manufacture(new Token(String(o[key]??""), IDENTIFIER, 0, 0, this._i++));
                         this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                     } else if(Array.isArray(o[key])) {
                         if(json.arrayIsAtomic(o[key] as any[])) for(let j = 0; j < (o[key] as any[]).length; j++) {
-                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(String((o[key] as any[])[j]??""), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(String((o[key] as any[])[j]??""), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         } else if(utility.isValid(s.nesting)) {
-                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            if(name.length < 1) name.push(new Token(s.sectionOperators[0], SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(key, TEXT, 0, 0, this._i++));
+                            name.push(new Token(key, IDENTIFIER, 0, 0, this._i++));
                             this._process((o[key] as any[]), s, name);
                         } else {
-                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(JSON.stringify(o[key]), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[key]), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     } else if(typeof o[key] === "object") {
                         if(utility.isValid(s.nesting)) {
-                            if(name.length < 1) name.push(new Token("[", SECTION_START, 0, 0, this._i++));
+                            if(name.length < 1) name.push(new Token(s.sectionOperators[0], SECTION_START, 0, 0, this._i++));
                             else name.push(new Token(s.nesting!.chars[0], SUB_SECTION, 0, 0, this._i++));
-                            name.push(new Token(key, TEXT, 0, 0, this._i++));
+                            name.push(new Token(key, IDENTIFIER, 0, 0, this._i++));
                             this._process(o[key], s, name);
                         } else {
-                            this.#manufacture(new Token(key, TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(key, IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token(s.delimiters[0], ASSIGNMENT, 0, 0, this._i++));
-                            this.#manufacture(new Token(JSON.stringify(o[key]), TEXT, 0, 0, this._i++));
+                            this.#manufacture(new Token(JSON.stringify(o[key]), IDENTIFIER, 0, 0, this._i++));
                             this.#manufacture(new Token("\n", EOL, 0, 0, this._i++));
                         }
                     }
@@ -1011,10 +1604,10 @@ namespace ini {
          */
         process(chunk: json.Value, syntax: Syntax, p: any): void {
             this.src = chunk;
-            if(chunk === null) this.#manufacture(new Token("", TEXT, 0, 0, this._i++));
-            else if(typeof chunk === "boolean") this.#manufacture(new Token(chunk ? "true" : "false", TEXT, 0, 0, this._i++));
-            else if(typeof chunk === "number") this.#manufacture(new Token(String(chunk), TEXT, 0, 0, this._i++));
-            else if(typeof chunk === "string") this.#manufacture(new Token(chunk, TEXT, 0, 0, this._i++));
+            if(chunk === null) this.#manufacture(new Token("", IDENTIFIER, 0, 0, this._i++));
+            else if(typeof chunk === "boolean") this.#manufacture(new Token(chunk ? "true" : "false", IDENTIFIER, 0, 0, this._i++));
+            else if(typeof chunk === "number") this.#manufacture(new Token(String(chunk), IDENTIFIER, 0, 0, this._i++));
+            else if(typeof chunk === "string") this.#manufacture(new Token(chunk, IDENTIFIER, 0, 0, this._i++));
             else if(typeof chunk === "object") {
                 const array = Array<Token>();
                 this._process(chunk, syntax, array);
@@ -1080,10 +1673,10 @@ namespace ini {
         #text;
         #escText;
         #quoteType = null as any as Type;//check for quote start. null means the next quote will be a starting one else the next is an end one
-        #com = "";//comments
+        // #com = "";//comments
         constructor() {
-            this.#ln = 0;
-            this.#li = 0;
+            this.#ln = 1;
+            this.#li = 1;
             this.#queue = [new Token("", INIT, -1, -1, -1)];
             this.src = "";
             this.#esc = 0;
@@ -1122,6 +1715,10 @@ namespace ini {
                     if(this.#escText.length === 0) {
                         this.#escText += token;
                         if(syntax.escape!.unicode.indexOf(this.#escText[0]) < 0) {
+                            if(this.#text.length > 0) {
+                                this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
+                                this.#text = "";
+                            }
                             this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
@@ -1129,11 +1726,19 @@ namespace ini {
                     } else if(/[A-Fa-f0-9]/.test(token)) {
                         this.#escText += token;
                         if(this.#escText.length === 5) {
+                            if(this.#text.length > 0) {
+                                this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
+                                this.#text = "";
+                            }
                             this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
                             this.#escText = "";
                             this.#esc = 0;
                         }
                     } else {
+                        if(this.#text.length > 0) {
+                            this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
+                            this.#text = "";
+                        }
                         this.#manufacture(new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li));
                         this.#escText = "";
                         this.#esc = 0;
@@ -1148,42 +1753,41 @@ namespace ini {
                     //     this.#esc = 0;
                     // }
                 } else if(token === this.#eol) {
-                    if(this.#com.length > 0){
-                        if(this.#com[this.#com.length - 1] === "\r") this.#com = this.#com.substring(0, this.#com.length - 1);
-                        this.#manufacture(new Token(this.#com, COMMENT, this.#ln, this.#ln, this.#li - this.#com.length));
-                        this.#com = "";
-                    } else if(this.#text.length > 0) {
-                        if(this.#text[this.#text.length - 1] === "\r") this.#text = this.#text.substring(0, this.#text.length - 1);
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                    // if(this.#text[this.#text.length - 1] === "\r") this.#text = this.#text.substring(0, this.#text.length - 1);
+                    if(this.#text.length > 0) {
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, EOL, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
-                } else if(syntax.comments.chars.indexOf(token) > -1 || this.#com.length > 0) {
+                    this.#quoteType = null as any;
+                } else if(syntax.comments.chars.indexOf(token) >= 0) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
-                    this.#com += token;
+                    this.#manufacture(new Token(token, COMMENT, this.#ln, this.#ln, this.#li - token.length));
+                    this.#escText = "";
+                    this.#esc = 0;
                 } else if(utility.isValid(syntax.escape) && syntax.escape!.char === token) {//an escape character?
                     this.#esc++;
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, ESCAPE, this.#ln, this.#ln, this.#li - token.length));
-                } else if(token === '[') {
+                } else if(token === syntax.sectionOperators[0]) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, SECTION_START, this.#ln, this.#ln, this.#li - token.length));
                     this.#escText = "";
                     this.#esc = 0;
-                } else if(token === ']') {
+                } else if(token === syntax.sectionOperators[1]) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, SECTION_END, this.#ln, this.#ln, this.#li - token.length));
@@ -1191,28 +1795,34 @@ namespace ini {
                     this.#esc = 0;
                 } else if(token === "'" && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
+                    // console.log({quoteType_before_assign: this.#quoteType});
                     this.#manufacture(new Token(token, QUOTE.equals(this.#quoteType) ? QUOTE_END : QUOTE, this.#ln, this.#ln, this.#li - token.length));
+                    // console.log({lastInsertedToken: this.#queue[this.#queue.length - 1]});
                     // this.#qt = !this.#qt;
                     if(QUOTE.equals(this.#quoteType)) this.#quoteType = null as any as Type;
                     else if(!utility.isValid(this.#quoteType)) this.#quoteType = QUOTE;
+                    // console.log({quoteType_after_assign: this.#quoteType});
                     this.#escText = "";
                     this.#esc = 0;
-                } else if(token === '"'  && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
+                } else if(token === '"' && utility.isValid(syntax.escape) && syntax.escape!.quoted) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
+                    // console.log({quoteType_before_assign: this.#quoteType});
                     this.#manufacture(new Token(token, D_QUOTE.equals(this.#quoteType) ? D_QUOTE_END : D_QUOTE, this.#ln, this.#ln, this.#li - token.length));
+                    // console.log({lastInsertedToken: this.#queue[this.#queue.length - 1]});
                     if(D_QUOTE.equals(this.#quoteType)) this.#quoteType = null as any as Type;
                     else if(!utility.isValid(this.#quoteType)) this.#quoteType = D_QUOTE;
+                    // console.log({quoteType_after_assign: this.#quoteType});
                     this.#escText = "";
                     this.#esc = 0;
                 } else if(utility.isValid(syntax.nesting) && syntax.nesting!.chars.indexOf(token) > -1) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, SUB_SECTION, this.#ln, this.#ln, this.#li - token.length));
@@ -1220,7 +1830,7 @@ namespace ini {
                     this.#esc = 0;
                 } else if(syntax.delimiters.indexOf(token) > -1) {
                     if(this.#text.length > 0) {
-                        this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text = "";
                     }
                     this.#manufacture(new Token(token, ASSIGNMENT, this.#ln, this.#ln, this.#li - token.length));
@@ -1228,7 +1838,7 @@ namespace ini {
                     this.#esc = 0;
                 } else if(utility.isWhitespace(token)){
                     if(this.#text.length > 0) {
-                        // this.#manufacture(new Token(this.#text, TEXT, this.#ln, this.#ln, this.#li - this.#text.length));
+                        // this.#manufacture(new Token(this.#text, IDENTIFIER, this.#ln, this.#ln, this.#li - this.#text.length));
                         this.#text += token;
                     } else {
                         this.#manufacture(new Token(token, WHITESPACE, this.#ln, this.#ln, this.#li - token.length));
@@ -1291,62 +1901,19 @@ namespace ini {
          */
         abstract parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression;
     }
-    class ParseInitialEscape implements Command {
-        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            let escd = yp.value;
-            if(s.escape!.nonQuotedEsc) {
-                const escaped = p.consume(ESCAPED, l, s, pa).value;
-                if(escaped === "\r" && p.match(EOL, l, s, p)) {
-                    escd = s.escape!.parse(escd + p.consume(EOL, l, s, pa!).value);
-                } else escd = s.escape!.parse(escd + escaped);
-            }
-            while(true) {
-                if(p.match(TEXT, l, s, pa!)) escd += p.consume(TEXT, l, s, pa).value;
-                else if(p.match(WHITESPACE, l, s, pa!)) escd += p.consume(WHITESPACE, l, s, pa).value;
-                else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) escd += p.consume(SUB_SECTION, l, s, pa).value;
-                else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) escd += p.consume(ASSIGNMENT, l, s, pa).value;
-                else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) escd += p.consume(COMMENT, l, s, pa).value;
-                else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
-                    const esc = p.consume(ESCAPE, l, s, pa);
-                    const escaped = p.consume(ESCAPED, l, s, pa);
-                    if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
-                        escd += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
-                    } else escd += s.escape!.parse(esc.value + escaped.value);
-                } else break;
-            }
-            escd = escd.trim();
-            // console.log(`InitialEscape; token: ${yp.value}, result: ${escd}`)
-            return new Text(escd);
-        }
-    }
     class ParseComment extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
+            let c = parseComment(l, s, p, pa!, yp.value);
             switch (this.direction) {
                 case parser.Direction.PREFIX:{
-                    if(s.comments.retain) pa!.block.push(yp.value);
-                    // while (!p.match(EOL, l, s, pa!)) {
-                    //     const comment = p.consume(COMMENT, l, s, pa).value;
-                    //     if(s.comments.retain){
-                    //         pa!.block.push(comment);
-                    //     }
-                    // }
-                    while (true) {
-                        if(p.match(EOL, l, s, pa!)) p.consume(EOL, l, s, pa);
-                        else if(p.match(COMMENT, l, s, pa!)){
-                            const comment = p.consume(COMMENT, l, s, pa).value;
-                            if(s.comments.retain){
-                                pa!.block.push(comment);
-                            }
-                        } else break;
-                    }
-					// console.log(`Block: ${pa!.block}`);
+                    if(s.comments.retain) pa!.block.push(c);
                     break;
                 }
                 case parser.Direction.POSTFIX:
                 case parser.Direction.INFIX:
                 default: {
-                    if(s.comments.retain) pa!.inline = yp.value;
-					// console.log(`Inline: ${pa!.inline}`);
+                    if(s.comments.retain) pa!.inline = c;
+					// // console.log(`Inline: ${pa!.inline}`);
                 }
             }
             return ap;
@@ -1354,27 +1921,27 @@ namespace ini {
     }
     class Assign extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, TEXT)!.parse(ap, new Token(yp.value, TEXT, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
+            // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, IDENTIFIER)!.parse(ap, new Token(yp.value, IDENTIFIER, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
             pa!.assigned = true;
             let left: string = "", right: string, preceding: string[];
-            // console.log("assignment with '" + yp.value + "'");
+            // // console.log("assignment with '" + yp.value + "'");
+
+            skipWhiteSpace(l, s, p, pa!);
             
             try {
-                const rightExpr = p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
+                const rightExpr = p.match(EOL, l, s, pa) ? null as any as Expression : p.parseWithPrecedence(yp.type.precedence, l, s, pa!);
                 switch(this.direction) {
                     case parser.Direction.PREFIX: {
                         if(utility.isValid(rightExpr) && !(rightExpr instanceof Text)) throw new parser.ParseError(`Could not parse whatever was after the assignment operator at line ${yp.lineStart}, position ${yp.startPos}`);
                         right  = isText(rightExpr) ? rightExpr.text : "";
                         preceding = pa!.block;
                         pa!.block = [];
-                        if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
                         break;
                     }
                     case parser.Direction.INFIX:
                     case parser.Direction.POSTFIX:
                     default: {
                         left  = isText(ap) ? (ap as Text).text : "";
-                        if(p.match(EOL, l, s, pa!)) skipBlankLines(l, s, p, pa!);
                         if(utility.isValid(rightExpr) && !(rightExpr instanceof Text)) throw new parser.ParseError(`Could not parse whatever was after the assignment operator at line ${yp.lineStart}, position ${yp.startPos}`);
                         right  = isText(rightExpr) ? rightExpr.text : "";
                         preceding = pa!.block;
@@ -1385,7 +1952,7 @@ namespace ini {
                 throw new parser.SyntaxError(yp, e);
             }
             pa!.assigned = false;
-            // console.log(`Assign; token: ${yp.value}, result: left > ${left}, right >${right}`);
+            // // console.log(`Assign; token: ${yp.value}, result: left > ${left}, right >${right}`);
             return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, left, right);
         }
     }
@@ -1401,19 +1968,24 @@ namespace ini {
                         const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
                         if(text instanceof Text){
                             pa!.section.push(text.text);
-                        }
-                        else throw new parser.ParseError("section name not found")
+                        } else if(text instanceof KeyValue) {
+                            pa!.section.push(text.key + text.value);
+                        } else throw new parser.ParseError("section name not found")
                     } catch (e: any) {
                         throw new parser.SyntaxError(yp, e);
                     }
                 } while (p.match(SUB_SECTION, l, s, pa));
+                p.consume(SECTION_END, l, s, pa);
             } else {
                 pa!.section = [];
                 while(true) {
                     try {
                         const text = p.parseWithPrecedence(yp.type.precedence, l, s, pa);
+                        // // console.log(JSON.stringify(text));
                         if(text instanceof Text) pa!.section.push(text.text);
-                        else throw new parser.ParseError("section name not found");
+                        else if(text instanceof KeyValue) {
+                            pa!.section.push(text.key + text.value);
+                        } else throw new parser.ParseError("section name not found");
                     } catch (e: any) {
                         throw new parser.SyntaxError(yp, e);
                     }
@@ -1427,14 +1999,17 @@ namespace ini {
 
             pa!.insideSecName = false;
 
+            skipWhiteSpace(l, s, p, pa!);
+
             //create and enforce section scope by parsing all properties in the scope
-            const scope = new Section({preceding: Object.freeze([...pa!.block]), inline: pa!.inline});
+            const scope = new Section({preceding: Object.freeze([...pa!.block]), inline: pa!.inline}, pa!.section);
             pa!.block = [];
             pa!.inline = "";
             while((!p.match(SECTION_START, l, s, pa!)) && !p.match(EOF, l, s, pa!)) {
                 let prop;
                 try {
-                    prop = p.parse(l, s, pa);
+                    /* low enough to parse assignments but high enough to stop just before an eol */
+                    prop = p.parseWithPrecedence(2, l, s, pa);
                 } catch (e: any) {
                     throw new parser.SyntaxError(yp, e);   
                 }
@@ -1448,17 +2023,19 @@ namespace ini {
                         pa!.inline = "";
                     }
                     try {
+                        // console.log('adding', prop);
                         scope.add(s, [], prop as KeyValue);
                     } catch (e: any) {
                         throw new parser.SyntaxError(yp, e);
                     }
                 }  else throw new parser.ParseError(`Unexpected value found`);
+                skipBlankLines(l, s, p, pa!);
             }
 
             if(utility.isValid(ap)){
                 try {
                     //add this scope to the parent/global scope
-                    (ap as Section).add(s, pa!.section, scope);
+                    (ap as Section).add(s, [...pa!.section], scope);
                 } catch (e: any) {
                     throw new parser.SyntaxError(yp, e);
                 }
@@ -1467,77 +2044,152 @@ namespace ini {
             return scope;
         }
     }
-    /**SUB_SECTION (.), ASSIGNMENT (=) and COMMENT (;) are all parsed as text when inside a quote or double quotes */
     class ParseText implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             let text = "";
+            let src = yp.value;
             if(yp.type.equals(QUOTE)) {
                 while(true){
-                    if(p.match(TEXT, l, s, pa)) text += p.consume(TEXT, l, s, pa).value;
-                    else if(p.match(SUB_SECTION, l, s, pa!)) text += p.consume(SUB_SECTION, l, s, pa).value;
-                    else if(p.match(ASSIGNMENT, l, s, pa!)) text += p.consume(ASSIGNMENT, l, s, pa).value;
-                    else if(p.match(COMMENT, l, s, pa!)) text += p.consume(COMMENT, l, s, pa).value;
-                    else if(p.match(SECTION_START, l, s, pa!)) text += p.consume(SECTION_START, l, s, pa).value;
-                    else if(p.match(SECTION_END, l, s, pa!)) text += p.consume(SECTION_END, l, s, pa).value;
-                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
-                    else if(p.match(D_QUOTE, l, s, pa)) text += p.consume(D_QUOTE, l, s, pa).value;
-                    else if(p.match(D_QUOTE_END, l, s, pa)) text += p.consume(D_QUOTE_END, l, s, pa).value;
+                    if(p.match(IDENTIFIER, l, s, pa)) {let val = p.consume(IDENTIFIER, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SUB_SECTION, l, s, pa!)) {let val = p.consume(SUB_SECTION, l, s, pa).value; text += val; src += val}
+                    else if(p.match(ASSIGNMENT, l, s, pa!)) {let val = p.consume(ASSIGNMENT, l, s, pa).value; text += val; src += val}
+                    else if(p.match(COMMENT, l, s, pa!)) {let val = p.consume(COMMENT, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SECTION_START, l, s, pa!)) {let val = p.consume(SECTION_START, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SECTION_END, l, s, pa!)) {let val = p.consume(SECTION_END, l, s, pa).value; text += val; src += val}
+                    else if(p.match(WHITESPACE, l, s, pa!)) {let val = p.consume(WHITESPACE, l, s, pa).value; text += val; src += val}
+                    else if(p.match(D_QUOTE, l, s, pa)) {let val = p.consume(D_QUOTE, l, s, pa).value; text += val; src += val}
+                    else if(p.match(D_QUOTE_END, l, s, pa)) {let val = p.consume(D_QUOTE_END, l, s, pa).value; text += val; src += val}
                     else if(p.match(ESCAPE, l, s, pa)) {
                         const esc = p.consume(ESCAPE, l, s, pa);
                         const escaped = p.consume(ESCAPED, l, s, pa);
+                        let val = "";
                         if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
-                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
-                        } else text += s.escape!.parse(esc.value + escaped.value);
+                            val = p.consume(EOL, l, s, pa!).value;
+                            text += s.escape!.parse(esc.value + val);
+                            src += val;
+                        } else {
+                            text += s.escape!.parse(esc.value + escaped.value);
+                        }
+                        src += esc.value + escaped.value + val;
                     } else if(p.match(QUOTE_END, l, s, pa)) {
-                        p.consume(QUOTE_END, l, s, pa);
+                        src += p.consume(QUOTE_END, l, s, pa).value;
                         break;
+                    } else if(p.match(QUOTE, l, s, pa)) {
+                        // console.log("p.match(D_QUOTE) = true");
+                        const e = new parser.ParseError(`Lexer is in an unsupported state. Parser matched quotes twice on ${text}`);
+                        throw new parser.SyntaxError(yp, e);
+                    } else {
+                        // console.log(`p.match(EOL) = ${p.match(EOL,l,s,pa)}`);
+                        const e = new parser.ParseError("was unable to match the next token");
+                        throw new parser.SyntaxError(yp, e);
                     }
                 }
+                src += skipWhiteSpace(l, s, p, pa!);
             } else if(yp.type.equals(D_QUOTE)) {
                 while(true){
-                    if(p.match(TEXT, l, s, pa)) text += p.consume(TEXT, l, s, pa).value;
-                    else if(p.match(SUB_SECTION, l, s, pa!)) text += p.consume(SUB_SECTION, l, s, pa).value;
-                    else if(p.match(ASSIGNMENT, l, s, pa!)) text += p.consume(ASSIGNMENT, l, s, pa).value;
-                    else if(p.match(COMMENT, l, s, pa!)) text += p.consume(COMMENT, l, s, pa).value;
-                    else if(p.match(SECTION_START, l, s, pa!)) text += p.consume(SECTION_START, l, s, pa).value;
-                    else if(p.match(SECTION_END, l, s, pa!)) text += p.consume(SECTION_END, l, s, pa).value;
-                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
-                    else if(p.match(QUOTE, l, s, pa)) text += p.consume(QUOTE, l, s, pa).value;
-                    else if(p.match(QUOTE_END, l, s, pa)) text += p.consume(QUOTE_END, l, s, pa).value;
+                    if(p.match(IDENTIFIER, l, s, pa)) {let val = p.consume(IDENTIFIER, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SUB_SECTION, l, s, pa!)) {let val = p.consume(SUB_SECTION, l, s, pa).value; text += val; src += val}
+                    else if(p.match(ASSIGNMENT, l, s, pa!)) {let val = p.consume(ASSIGNMENT, l, s, pa).value; text += val; src += val}
+                    else if(p.match(COMMENT, l, s, pa!)) {let val = p.consume(COMMENT, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SECTION_START, l, s, pa!)) {let val = p.consume(SECTION_START, l, s, pa).value; text += val; src += val}
+                    else if(p.match(SECTION_END, l, s, pa!)) {let val = p.consume(SECTION_END, l, s, pa).value; text += val; src += val}
+                    else if(p.match(WHITESPACE, l, s, pa!)) {let val = p.consume(WHITESPACE, l, s, pa).value; text += val; src += val}
+                    else if(p.match(QUOTE, l, s, pa)) {let val = p.consume(QUOTE, l, s, pa).value; text += val; src += val}
+                    else if(p.match(QUOTE_END, l, s, pa)) {let val = p.consume(QUOTE_END, l, s, pa).value; text += val; src += val}
                     else if(p.match(ESCAPE, l, s, pa)) {
                         const esc = p.consume(ESCAPE, l, s, pa);
                         const escaped = p.consume(ESCAPED, l, s, pa);
+                        let val = "";
                         if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
-                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
-                        } else text += s.escape!.parse(esc.value + escaped.value);
+                            val = p.consume(EOL, l, s, pa!).value;
+                            text += s.escape!.parse(esc.value + val);
+                            src += val;
+                        } else {
+                            text += s.escape!.parse(esc.value + escaped.value);
+                        }
+                        src += esc.value + escaped.value + val;
                     } else if(p.match(D_QUOTE_END, l, s, pa)) {
-                        p.consume(D_QUOTE_END, l, s, pa);
+                        src += p.consume(D_QUOTE_END, l, s, pa).value;
                         break;
+                    } else if(p.match(D_QUOTE, l, s, pa)) {
+                        const e = new parser.ParseError(`Lexer is in an unsupported state. Parser matched double quotes twice on ${text}`);
+                        throw new parser.SyntaxError(yp, e);
+                    } else {
+                        // console.log(`p.match(EOL) = ${p.match(EOL,l,s,pa)}`);
+                        const e = new parser.ParseError("was unable to match the next token");
+                        throw new parser.SyntaxError(yp, e);
                     }
                     // console.log(p.match(D_QUOTE, l, s, pa));
                     
                     // console.log(`Parsed text: ${text}`);
                 }
-            } else {
-				text = yp.value;
+                src += skipWhiteSpace(l, s, p, pa!);
+            } else if(yp.type.equals(ESCAPE)) {
+				const esc0 = yp.value;
+                const escaped0 = p.consume(ESCAPED, l, s, pa);
+                let val = ""
+                if(escaped0.value === "\r" && p.match(EOL, l, s, p)) {
+                    val = p.consume(EOL, l, s, pa!).value;
+                    text += s.escape!.parse(esc0 + val);
+                } else {
+                    text += s.escape!.parse(esc0 + escaped0.value);
+                }
+                src += escaped0.value + val;
                 while(true) {
-                    if(p.match(TEXT, l, s, pa!)) text += p.consume(TEXT, l, s, pa).value;
-                    else if(p.match(WHITESPACE, l, s, pa!)) text += p.consume(WHITESPACE, l, s, pa).value;
-                    else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) text += p.consume(SUB_SECTION, l, s, pa).value;
-                    else if(p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) text += p.consume(ASSIGNMENT, l, s, pa).value;
-                    else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) text += p.consume(COMMENT, l, s, pa).value;
+                    if(p.match(IDENTIFIER, l, s, pa!)) {val = p.consume(IDENTIFIER, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(WHITESPACE, l, s, pa!)) {val = p.consume(WHITESPACE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) {val = p.consume(SUB_SECTION, l, s, pa).value; text += val; src += val;}
+                    else if((p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) || (p.match(ASSIGNMENT, l, s, pa) && pa!.insideSecName)) {val = p.consume(ASSIGNMENT, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) {val = p.consume(COMMENT, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(QUOTE, l, s, pa!)) {val = p.consume(QUOTE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(QUOTE_END, l, s, pa!)) {val = p.consume(QUOTE_END, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(D_QUOTE, l, s, pa!)) {val = p.consume(D_QUOTE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(D_QUOTE_END, l, s, pa!)) {val = p.consume(D_QUOTE_END, l, s, pa).value; text += val; src += val;}
                     else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
                         const esc = p.consume(ESCAPE, l, s, pa);
                         const escaped = p.consume(ESCAPED, l, s, pa);
+                        val = "";
                         if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
-                            text += s.escape!.parse(esc.value + p.consume(EOL, l, s, pa!).value);
-                        } else text += s.escape!.parse(esc.value + escaped.value);
+                            val = p.consume(EOL, l, s, pa!).value;
+                            text += s.escape!.parse(esc.value + val);
+                            src += val;
+                        } else {
+                            text += s.escape!.parse(esc.value + escaped.value);
+                        }
+                        src += esc.value + escaped.value + val;
+                    } else break;
+                }
+                // console.log({text});
+                text = text.trim();
+            } else {
+				text += yp.value;
+                while(true) {
+                    if(p.match(IDENTIFIER, l, s, pa!)) {let val = p.consume(IDENTIFIER, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(WHITESPACE, l, s, pa!)) {let val = p.consume(WHITESPACE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(SUB_SECTION, l, s, pa!) && !pa!.insideSecName) {let val = p.consume(SUB_SECTION, l, s, pa).value; text += val; src += val;}
+                    else if((p.match(ASSIGNMENT, l, s, pa!) && pa!.assigned) || (p.match(ASSIGNMENT, l, s, pa) && pa!.insideSecName)) {let val = p.consume(ASSIGNMENT, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(COMMENT, l, s, pa!) && !s.comments.inline) {let val = p.consume(COMMENT, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(QUOTE, l, s, pa!)) {let val = p.consume(QUOTE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(QUOTE_END, l, s, pa!)) {let val = p.consume(QUOTE_END, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(D_QUOTE, l, s, pa!)) {let val = p.consume(D_QUOTE, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(D_QUOTE_END, l, s, pa!)) {let val = p.consume(D_QUOTE_END, l, s, pa).value; text += val; src += val;}
+                    else if(p.match(ESCAPE, l, s, pa!) && utility.isValid(s.escape) && s.escape!.nonQuotedEsc) {
+                        const esc = p.consume(ESCAPE, l, s, pa);
+                        const escaped = p.consume(ESCAPED, l, s, pa);
+                        let val = "";
+                        if(escaped.value === "\r" && p.match(EOL, l, s, p)) {
+                            val = p.consume(EOL, l, s, pa!).value;
+                            text += s.escape!.parse(esc.value + val);
+                            src += val;
+                        } else {
+                            text += s.escape!.parse(esc.value + escaped.value);
+                        }
+                        src += esc.value + escaped.value + val;
                     } else break;
                 }
                 text = text.trim();
             }
-            // console.log(`parseText: ${text}`);
-            return new Text(text);
+            return new Text(text, src);
         }
     }
     class EndLine implements Command {
@@ -1562,27 +2214,14 @@ namespace ini {
                     pa!.block = [];
                     pa!.inline = "";
                 }
-                (ap as Section).add(s, pa!.section, exp as (Section | KeyValue));
+                (ap as Section).add(s, [...pa!.section], exp as (Section | KeyValue));
+                // skipWhiteSpace(l, s, p, pa!);
+                // skipBlankLines(l, s, p, pa!);
             }
             return ap;
         }
     }
-    /**A command to parse prefix whitespace. Because of the way the lexer creates tokens, this will only be called if a whitespace is not a delimiter like {@link PROPERTIES `PROPERTIES`} */
-    class ParseSpace implements Command {
-        parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
-            let spaces = 1;
-            while(p.match(WHITESPACE, l, s, pa!)){
-                spaces++;
-                p.consume(WHITESPACE, l,s, pa);
-            }
-            // console.log(`ParseSpace. NumOfSpaces: ${spaces}`);
-            if(p.match(TEXT, l, s, pa)) try{return p.parseWithPrecedence(TEXT.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
-            else if(p.match(QUOTE, l, s, pa)) try{return p.parseWithPrecedence(QUOTE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
-            else if(p.match(D_QUOTE, l, s, pa)) try{return p.parseWithPrecedence(D_QUOTE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
-            else if(p.match(ESCAPE, l, s, pa)) try{return p.parseWithPrecedence(ESCAPE.precedence, l, s, pa);}catch(e: any) {throw new parser.SyntaxError(yp, e);}
-            return ap;
-        }
-    }
+    /**@summary A representation of a `.ini` data in memory */
     export interface Expression extends expression.GExpression<Format> {
         readonly comments: {
             readonly preceding: readonly string[],
@@ -1612,11 +2251,8 @@ namespace ini {
         debug(): string {
             return `${this.comments.preceding.length > 0 ? unwrapComments(this.comments) : ""}${this.key} = ${this.value} ${this.comments.inline ? ";" + this.comments.inline : ""}\n`;
         }
-        compareTo(obj?: expression.Expression | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
-        }
         equals(obj?: object | undefined): boolean {
-            if (obj instanceof Section) return this.compareTo(obj) === 0;
+            if (obj instanceof KeyValue) return this.key === obj!.key && this.value === obj!.value;
             return false;
         }
         hashCode32(): number {
@@ -1631,7 +2267,7 @@ namespace ini {
         constructor(public readonly comments: {
             readonly preceding: readonly string[],
             readonly inline?: string
-        } = emptyComment()) { this._map = {}; }
+        } = emptyComment(), public readonly fullname: readonly string[] = Object.freeze([])) { this._map = {}; }
         private static _addProp(section: Section, s: Syntax, names: string[], value: KeyValue): void {
             if(names.length === 0) {
                 const key = value.key;//Section._getProperKey(value);
@@ -1651,7 +2287,16 @@ namespace ini {
                 switch(s.duplicateDirective.section){
                     case DuplicateDirective.MERGE:
                     default: if(utility.isValid(section._map[name])) {
-                        section._map[name] = value?{...value!}as Section:new Section();
+                        if(!utility.isValid(value)) section._map[name] = new Section();
+                        // section._map[name] = value?{...value!}as Section:new Section();
+                        else {
+                            for (const key in value!._map) {
+                                const element = value!._map[key];
+                                if(element instanceof Property){
+                                    for(let i = 0; i < element.values.length; i++) (section._map[name] as Section).add(s, [key], element.values[i]);
+                                } else (section._map[name] as Section).add(s, key, element); 
+                            }
+                        }
                         return;
                     } else break;
                     case DuplicateDirective.OVERWRITE: break;
@@ -1663,7 +2308,7 @@ namespace ini {
             }
             const name = names.shift()!;
             if(!utility.isValid(section._map[name])) section._map[name] = new Section();
-            else if(!(section._map[name] instanceof Section)) throw new expression.ExpressionError(`The section '${name}' is not of Section type. A name conflict was found`)
+            else if(!(section._map[name] instanceof Section)) throw new expression.ExpressionError(`The section '${name}' is not of Section type. A name conflict was found`);
             return Section._addSec(section._map[name] as Section, s, names, value);
         }
         public add(s: Syntax, name: string | string[]): void;
@@ -1694,11 +2339,8 @@ namespace ini {
         debug(): string {
             return (this.comments.preceding.length > 0 ? unwrapComments(this.comments) : "") + this._debug();
         }
-        compareTo(obj?: expression.Expression | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
-        }
         equals(obj?: object | undefined): boolean {
-            if (obj instanceof Section) return this.compareTo(obj) === 0;
+            if (obj instanceof Section) return this._map === obj!._map;
             return false;
         }
         hashCode32(): number {
@@ -1763,11 +2405,8 @@ namespace ini {
         debug(): string {
             return `${this.comments.preceding.length > 0 ? unwrapComments(this.comments) : ""}${this._values.map(x => x.debug()).join("")}`;
         }
-        compareTo(obj?: expression.Expression | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
-        }
         equals(obj?: object | undefined): boolean {
-            if (obj instanceof Property) return this.compareTo(obj) === 0;
+            if (obj instanceof Property) return this._values === obj!._values;
             return false;
         }
         hashCode32(): number {
@@ -1779,20 +2418,17 @@ namespace ini {
     }
     class Text implements Expression {
         readonly comments;
-        constructor(public readonly text: string){
+        constructor(public readonly text: string, public readonly src?: string){
             this.comments = { preceding: Object.freeze(Array<string>()) };
         }
         format(format: Format<any>, syntax?: Syntax | undefined, params?: any): void {
-            format.append(this.text, syntax, params);
+            format.append((!utility.isValid(this.src)) ? this.text : this.src!, syntax, params);
         }
         debug(): string {
             return this.text;
         }
-        compareTo(obj?: expression.Expression | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
-        }
         equals(obj?: object | undefined): boolean {
-            if (obj instanceof Text) return this.compareTo(obj) === 0;
+            if (obj instanceof Text) return this.text === obj.text;
             return false;
         }
         hashCode32(): number {
@@ -1802,7 +2438,7 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
-    /**Convenience class to allow for proper return values using `parse` */
+    /**@summary Convenience class to allow for proper return values using `parse` */
     export class Parser extends parser.PrattParser<Expression, Syntax> {}
     export type Appendage = string | Expression;
     /**A base ini format */
@@ -1847,7 +2483,9 @@ namespace ini {
                 this.modifications++;
             } else if(data instanceof KeyValue) {
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
-                this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                if(data.value.length > 0)
+                    this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                else this.append(`${processEscapables(data.key, s!, this)}`, s, p);
                 this.append(`${data.comments.inline ? data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
@@ -1875,7 +2513,7 @@ namespace ini {
             return this;
         }
         equals(another: expression.GFormat<Expression, string>): boolean {
-            if (another instanceof StringFormat) return this.compareTo(another) === 0;
+            if (another instanceof StringFormat) return this._data === another._data;
             return false;
         }
         modifications: number = 0;
@@ -1941,7 +2579,7 @@ namespace ini {
             return this;
         }
         equals(another: expression.GFormat<Expression, json.Value>): boolean {
-            if (another instanceof StringFormat) return this.compareTo(another) === 0;
+            if (another instanceof JSFormat) return this._data === another._data;
             return false;
         }
         modifications: number = 0;
@@ -1952,9 +2590,6 @@ namespace ini {
         }
         toJSON(): string {
             return JSON.stringify(this);
-        }
-        compareTo(obj?: expression.GFormat<Expression, json.Value> | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
         }
     }
     export class FileFormat implements Format<ReadStream> {
@@ -2007,7 +2642,9 @@ namespace ini {
                 this.modifications++;
             } else if(data instanceof KeyValue) {
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
-                this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                if(data.value.length > 0)
+                    this.append(`${processEscapables(data.key, s!, this)} ${s!.delimiters[0]} ${processEscapables(data.value, s!, this)}`, s, p);
+                else this.append(`${processEscapables(data.key, s!, this)}`, s, p);
                 this.append(`${data.comments.inline ? data.comments.inline : ""}`, s, p);
             } else if(data instanceof Property){
                 this.append(data.comments.preceding.length > 0 ? unwrapComments(data.comments, s) + "\n" : "", s, p);
@@ -2038,7 +2675,7 @@ namespace ini {
             return this;
         }
         equals(another: expression.GFormat<Expression, ReadStream>): boolean {
-            if (another instanceof FileFormat) return this.compareTo(another) === 0;
+            if (another instanceof FileFormat) return this._str.path === another._str.path;
             return false;
         }
         modifications: number = 0;
@@ -2049,9 +2686,6 @@ namespace ini {
         }
         toJSON(): string {
             return JSON.stringify(this);
-        }
-        compareTo(obj?: expression.GFormat<Expression, ReadStream> | undefined): utility.Compare {
-            return utility.compare(this.hashCode32(), obj?.hashCode32());
         }
     }
     export class Converter extends parser.Converter<parser.GToken<string>, Expression, Syntax, Parser, Params, MutableLexer, any> {
@@ -2090,13 +2724,18 @@ namespace ini {
     export const UNIX = new SyntaxBuilder()
         .removeCommentChar(";")
         .retainComments(false)
+        .supportNonQuotedEscape(true)
+        .supportQuotedText(true)
         .removeDelimiter(':')
+        .removeNestingChar('/')
         .setDuplicateDirective(DuplicateDirective.OVERWRITE, true)
         .setDuplicateDirective(DuplicateDirective.MERGE, false)
         .build();
 
     export const PROPERTIES = new SyntaxBuilder()
         .removeCommentChar(";")
+        .setSectionStart(utility.specialCharacters[0])
+        .setSectionEnd(utility.specialCharacters[1])
         .addCommentChar("!")
         .supportInline(false)
         .retainComments(false)//Can't decide on this functionality
