@@ -955,7 +955,15 @@ namespace csv {
      */
     readonly nap?: string;
   }
-  /**A mutative object used to store temporay data about a document or an expression */
+  /**
+     * @summary An object that holds variables for the parsing process.
+     * 
+     * @description A mutable visitor object used by the {@linkcode Parser} as a container for variables,
+     * 'a notice board' for the {@link Format formatter}. It is used by the formatter as a container object for
+     * reading neccessary values that give information about the parsing process. For example,
+     * during parsing, the number of fields-per-row is updated in this class by the parser and
+     * during formatting that same number is read by the formatter.
+   */
   export class Params {
     #header?: string[]; //a list of string naming the headers
     #dih?: boolean; //doc is headerless
@@ -1125,12 +1133,25 @@ namespace csv {
       );
     }
   }
+  /**
+   * @summary An interface that extends {@link parser.MutableLexer} for convenience and documentation purposes
+   * @description
+   * An object that creates `Token` objects from a `.csv` data format. It is a specialised implementation of the {@linkcode parser.MutableLexer} interface.
+   * It allows new data to be added even after the initial one has been transformed into tokens. This enables the {@linkcode StringLexer} to be plugged
+   * into a stream of characters and never fail.
+   */
   export interface MutableLexer<CH = string> extends parser.MutableLexer<parser.GToken<string>, Syntax, CH> {
     end(syntax: Syntax, p: Params | any): void;
     process(chunk: CH, syntax: Syntax, p: Params | any): void;
     // processed(): readonly parser.GToken<string>[];
   }
-  /**This is the direct opposite of {@link JSFormat `JSFormat`} */
+  /**
+   * @summary Creates tokens from a json value such as a `string`, `number`, `boolean`, `null`, arrays and objects. 
+   * @description A {@linkcode MutableLexer} that processes json in-memory values into tokens that can be extracted
+   * via {@linkcode next}. The tokens are ordered in the way the {@linkcode StringLexer} orders its tokens.\
+   * \
+   * This is the direct opposite of {@link JSFormat `JSFormat`}
+   */
   export class JSONLexer implements MutableLexer<json.Value> {
     #queue;
     // #tmpdir;//used for incedibly large json
@@ -1506,6 +1527,11 @@ namespace csv {
       return this.#row;
     }
   }
+  /**
+   * @summary Creates tokens from updatable text recieved.
+   * @description A {@linkcode MutableLexer} that processes strings (probably from a file or network) in the `.csv` format
+   * into tokens meant to be parsed by a {@linkcode PrattParser}.
+   */
   export class StringLexer implements MutableLexer {
     // #lqt?: Token;//last queried token
     #ln: number; //the current line being being read from. This value is reset each time a line terminator is encountered outside of a quoted string.
@@ -1670,6 +1696,11 @@ namespace csv {
       return new Token("", EOF, this.line(), this.line(), this.position());
     }
   }
+  /**
+   * @summary A specialised mini-parser that is `.csv` syntax-specific.
+   * @description An object that can parse {@link parser.GType type(s)} of `.csv` {@link parser.Token tokens} effectively in a way
+   * that is specific to the `.csv` data format and produces an expression for the tokens it parsed.
+   */
   export interface Command
     extends parser.GCommand<parser.GToken<string>, Expression, Syntax, MutableLexer, Parser> {
     parse(
@@ -1681,6 +1712,9 @@ namespace csv {
       pa?: Params
     ): Expression;
   }
+  /**
+   * A command to parse a field when the parse encounter one creating a {@linkcode FieldExpression} or {@linkcode QuotedExpression} in the process.
+   */
   class ParseField implements Command {
     parse(
       ap: Expression,
@@ -1717,6 +1751,9 @@ namespace csv {
       return new FieldExpression(yp.value);
     }
   }
+  /**
+   * A command to parse a separator when the parser encounters one creating a {@linkcode SeparatorExpression} in the process.
+   */
   class ParseSeparator implements Command {
     parse(
       ap: Expression,
@@ -1734,6 +1771,9 @@ namespace csv {
       );
     }
   }
+  /**
+   * A command to parse an eol token (which completes a row) when the parser encounters one creating a {@linkcode RecordExpression} in the process.
+   */
   class ParseRow implements Command {
     static #getString(ap: Expression, s: Syntax, p: Params) {
       const str = new StringFormat();
@@ -1764,10 +1804,17 @@ namespace csv {
       return new RecordExpression(ap, yp.value);
     }
   }
+  /**
+   * @summary A representation of parsed `Token` objects.
+   * @description The result after the parser has returned.
+   */
   export interface Expression extends expression.GExpression<Format> {
     // format(format: Format, syntax?: Syntax, params?: any): void;
     format(format: Format, syntax?: Syntax, params?: Params | any): void;
   }
+  /**
+   * A representation of a cell value
+   */
   class FieldExpression implements Expression {
     constructor(public readonly data: string) {}
     format(f: Format, s?: Syntax, p?: Params): void {
@@ -1791,6 +1838,9 @@ namespace csv {
       return this.debug();
     }
   }
+  /**
+   * A representation of a cell value that is quoted
+   */
   class QuotedExpression implements Expression {
     public constructor(
       public readonly open: string,
@@ -1822,6 +1872,9 @@ namespace csv {
       return this.debug();
     }
   }
+  /**
+   * A representation of a value within a row with it's left-adjacent sibling (cell values) which may also be a `SepararactorExpression`.
+   */
   class SeparatorExpression implements Expression {
     constructor(
       public readonly pre: Expression,
@@ -1854,6 +1907,9 @@ namespace csv {
       return this.debug();
     }
   }
+  /**
+   * A representation of a row.
+   */
   class RecordExpression implements Expression {
     constructor(
       public readonly left: Expression,
@@ -1878,18 +1934,31 @@ namespace csv {
       return this.debug();
     }
   }
-  /**Convenience class to allow for proper return values using `parse` */
+  /**
+   * @summary Convenience class to allow for proper return values using `parse` and for namepsace documentation
+   * @description The `.csv` variant of the {@link parser.PrattParser Vaughn Pratt's parser}
+   */
   export class Parser extends parser.PrattParser<Expression, Syntax> {}
+  /**
+   * @summary The type of value accepted by the {@linkcode Format.append} method.
+   * @description The value that will be sent to (and expected by) {@linkcode Format} objects
+   */
   export type Appendage =
     | string
     | Expression;
-  /**A base csv format */
+    /**
+     * @summary A base `.csv` format
+     * @description Defines how the {@link Expression parsed expression(s)} is/are outputted.
+     */
   export interface Format<T = any> extends expression.GFormat<Expression, T> {
     append(data: Appendage, s?: Syntax, p?: Params): void;
     get rows(): number;
     get columns(): number;
   }
-  /**A csv format as a generic string, good for quick formatting and testing purposes */
+  /**
+   * @summary The {@linkcode Expression} output as a string.
+   * @description
+   * A csv format as a generic string, good for quick formatting and testing purposes */
   export class StringFormat implements Format<string> {
     #row = 0;
     #col = 0;
@@ -1978,11 +2047,11 @@ namespace csv {
     }
   }
   /**
-   * @summary An in-memory representation of a csv document in json format.
+   * @summary An in-memory representation of an {@link Expression} in json format.
    * 
    * @description A class that builds an an array objects (dictionaries) whereby the property names
    * correspond to full/partial header values of the csv document and the property values correspond
-   * to either partial header values or to a cell value in a csv document. \
+   * to either partial header values or to a cell value in a csv document.\
    * \
    * The in-memory json is built by repeatedly calling {@link JSFormat.append}, however, `append`
    * shoud never be called in isolation by a user, it is automatically called by {@link Expression} objects
@@ -1996,7 +2065,7 @@ namespace csv {
    * The order of the header value (for nested properties) is important and may cause values to
    * be overwritten if not properly placed. The general rule place the most nested values at the
    * begining of the header array and the least nested ones at the end of the header array. Nesting
-   * can be done using the {@link Syntax.nop nested-object-opertor} (for nested properties) and/or
+   * can be done using the {@link Syntax.nop nested-object-operator} (for nested properties) and/or
    * {@link Syntax.nap nested-array-operator} (for nested array indexes/indices).
    * 
    * @privateRemark
@@ -2178,7 +2247,10 @@ namespace csv {
       return JSON.stringify(this, null, 2);
     }
   }
-  /**A csv format that writes to a file */
+  /**
+   * @summary The {@linkcode Expression} output written to a file system.
+   * @description Writes the parsed `.ini` data to a file system whenevr {@linkcode append} is called.
+   */
   export class FileFormat implements Format<fs.ReadStream> {
     /**
      * Constructs this `FileFormat` object
@@ -2332,6 +2404,9 @@ namespace csv {
       return "";
     }
   }
+  /**
+   * @summary The `.csv` port of the converter class.
+   */
   export class Converter extends parser.Converter<
     parser.GToken<string>,
     Expression,
