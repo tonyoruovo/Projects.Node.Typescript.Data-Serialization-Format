@@ -84,8 +84,8 @@ namespace utility {
    */
   (lhs: T, rhs?: T) => T;
   export type Binary = number | bigint | number[] | bigint[] | Buffer;
-  export type UnaryBitwise<T extends Binary> = () => T;
-  export type BinaryBitwise<T extends Binary> = (right: T) => T;
+  export type UnaryBitwise<T extends Binary> = (val?: T) => T;
+  export type BinaryBitwise<T extends Binary> = (operand1: T, operand2?: T) => T;
   export type BitWise<T extends Binary> = Concatenator<T>;
   export type SIMD<T extends Binary> = (...data: T[]) => T;
   export type MIMD<T extends Binary[]> = (...data: T[]) => T;
