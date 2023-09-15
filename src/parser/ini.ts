@@ -268,7 +268,7 @@ namespace ini {
                 char: "\\",
                 quoted: true,
                 nonQuotedEsc: false,
-                unicode: ['x', 'u'],
+                unicode: ['x', 'X', 'u', 'U'],
                 isSpecial: null as any,
                 parse: null as any
             };
@@ -1048,8 +1048,14 @@ namespace ini {
         }
     }
     /**
-     * A specialized `.ini` data extension of the {@link parser.Syntax `parser.Syntax`} interface that defines the
-     * `.ini` syntax that this pipeline uses.
+     * @summary Defines how an ini data format is parsed.
+     * @description
+     * A specialized `.ini` data extension of the {@linkcode parser.Syntax} interface that defines the
+     * `.ini` syntax that this pipeline uses. This can also be used to create a syntax for `.proprties` data format. \
+     * \
+     * Because of the complex nature of the `Syntax` interface (and all it's responsibilities), it is recommended
+     * that users instantiate it through the use of the {@linkcode SyntaxBuilder} class, as there are checks that exist in
+     * `SyntaxBuilder` that may prevent instantiating an invalid `Syntax` object.
      */
     export interface Syntax extends parser.GSyntax<Type, Command> {
         /**
@@ -1207,7 +1213,12 @@ namespace ini {
         parse(value: string): json.Value;
     }
     /**
-     * A mutable visitor that holds variables for the parsing process.
+     * @summary An object that holds variables for the parsing process.
+     * 
+     * @description A mutable visitor object used by the {@linkcode Parser} as a container for variables,
+     * 'a notice board' for the {@link Format formatter}. It is used by the formatter as a container object for
+     * reading neccessary values that give information about the parsing process. For example,
+     * during parsing, this object can specify if the parser is on the left or right side of an assingment.
      */
     export class Params {
         /**
@@ -1249,7 +1260,6 @@ namespace ini {
           return false;
         }
     }
-
     /**
      * The type used for end-of-file tokens.
      * @type {parser.GType<string>}
@@ -1356,18 +1366,20 @@ namespace ini {
      */
     export const WHITESPACE: parser.GType<string> = new Type("13", 1);
     /**
-     * A special type that creates the global section where unamed properties and allsections are stored.
+     * A special type that creates the global section where unamed properties and all sections are stored.
+     * There will always be at most one token with this type in every given lexer.
      * @type {parser.GType<string>}
      * @constant
      * @readonly
      */
     export const INIT: parser.GType<string> = new Type("14", Number.MAX_SAFE_INTEGER);
-
     /**
      * @summary An object representing a valid lexeme in a `.ini` data format.
      * @description
      * A `Token` is concrete implementation of the {@link parser.GToken} interface where each token maps to a one or more lexeme in `.ini` data.
-     * A token contains all the data that helps 
+     * A token contains all the data that helps describe it's payload's distinction in a data. It represents a string of characters that individually
+     * represent a logical portion of an ini document. Although each {@link Token.value value} is unique, there are expected to be 16 types of token
+     * and accounted for in this documentation.
      */
     class Token implements parser.GToken<string> {
         /**
@@ -1445,24 +1457,22 @@ namespace ini {
         }
     }
     /**
-     * @summary An object that creates `Token` objects from a `.ini` data format
+     * @summary An interface that extends {@link parser.MutableLexer} for convenience and documentation purposes.
      * @description
-     * A specialised implementation of the {@linkcode parser.MutableLexer} interface. It allows new data to be added even after the initial one has been transformed into tokens.
+     * An object that creates `Token` objects from a `.ini` data format. It is a specialised implementation of the {@linkcode parser.MutableLexer} interface.
+     * It allows new data to be added even after the initial one has been transformed into tokens. This enables the {@linkcode StringLexer} to be plugged
+     * into a stream of characters and never fail.
      */
     export interface MutableLexer<CH = string> extends parser.MutableLexer<Token, Syntax, CH> {
       end(syntax: Syntax, p: Params | any): void;
       process(chunk: CH, syntax: Syntax, p: Params | any): void;
     }
     /**
-     * - `{}` *maps to* a section with property names that are strings
-     * - `[]` *maps to* a section with properties names that are numbers
-     * - `null` *maps to* a property name (key) that is an empty string
-     * - `'a string'` *maps to* a property name (key) that is a string with the value `'a string'`
-     * - `true` *maps to* a property name (key) that is a string with the value `true`
-     * - `false` *maps to* a property name (key) that is a string with the value `false`
-     * - `-3.4` *maps to* a property name (key) that is a string with the value `-3.4` \
-     * 
-     * Remember to adjust ParseText to retain leading and trailing whitespaces in a quoted text
+     * @summary Creates tokens from a json value such as a `string`, `number`, `boolean`, `null`, arrays and objects.
+     * @description A {@linkcode MutableLexer} that processes json in-memory values into tokens that can be extracted
+     * via {@linkcode next}. The tokens are ordered in the way the {@linkcode StringLexer} orders its tokens.\
+     * \
+     * This is the direct opposite of {@link JSFormat `JSFormat`}
      */
     export class JSONLexer implements MutableLexer<json.Value> {
         private _queue;
@@ -1471,25 +1481,7 @@ namespace ini {
         constructor(){
             this._queue = Array<Token>(new Token("", INIT, -1, -1, -1));
         }
-        /*We should only process escapables for output format and not for input parsing because it is in internal form and the parser does not care about escapes when a string is in memory*/
-        /*private _processEscapables(text: string, s: Syntax): string {
-            if(!utility.isValid(s.escape)) return text;
-            let val = "";
-            let isQuotable = false;
-            for (let i = 0; i < text.length; i++) {
-                const isEscapable = Array.isArray(s.escape!.isSpecial) ? s.escape!.isSpecial.indexOf(text[i]) >= 0 : (s.escape!.isSpecial as ((e: string) => boolean))(text[i]);
-                if(isEscapable) {
-                    const escaped = s.escape!.parse(`${s.escape!.char}${text[i]}`);
-                    if(s.escape!.quoted) isQuotable = true;
-                    else 
-                }
-                const escaped = s.escape!.parse(`${s.escape!.char}${text[i]}`);
-                if(escaped.length > 1 && escaped[0] === s.escape!.char) val += escaped.substring(1);
-                else if(s.escape!.quoted) {val += escaped; isQuotable = true; }
-                else throw new parser.ParseError(`Cannot have escapable characters in an unquoted text at: ${this._i}`);
-            }
-            return isQuotable ? `"${val}"` : val;
-        }*/
+        /**Called by {@linkcode process} */
         private _process(o: json.Value, s: Syntax, name = Array<Token>()) {
             if(json.isAtomic(o)) {
                 if(name.length > 0) {
@@ -1663,7 +1655,11 @@ namespace ini {
           return 0;
         }
     }
-    /**Since this is a line oriented data-serialisation-format, strings are tokenised by lines and not individually */
+    /**
+     * @summary Creates tokens from updatable text recieved.
+     * @description A {@linkcode MutableLexer} that processes strings (probably from a file or network) in the `.ini` format
+     * into tokens meant to be parsed by a {@linkcode PrattParser}.
+     */
     export class StringLexer implements MutableLexer{
         #ln: number;
         #li: number;
@@ -1891,9 +1887,18 @@ namespace ini {
             return this.#ln
         }
     }
+    /**
+     * @summary A specialised mini-parser that is `.ini` syntax-specific.
+     * @description An object that can parse {@link parser.GType type(s)} of `.ini` {@link parser.Token tokens} effectively in a way
+     * that is specific to the `.ini` data format and produces an expression for the tokens it parsed.
+     */
     export interface Command extends parser.GCommand<Token, Expression, Syntax, MutableLexer, Parser> {
       parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer, s: Syntax, pa?: Params): Expression;
     }
+    /**
+     * A command that can parse prefix and infix tokens. A prefix token is a token located after an {@linkcode EOL}. An infix token
+     * is a token located between after another token such that it is syntactically correct.
+     */
     abstract class LeftAndRight implements Command {
         constructor(public readonly direction: parser.Direction){}
         /**
@@ -1901,6 +1906,11 @@ namespace ini {
          */
         abstract parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression;
     }
+    /**
+     * A command to parse the comment token when the parser encounters one. It returns `undefined` and depending on whether this was
+     * called as a prefix (block comments) or as an infix (inline comments), may assign the comments parsed either to {@linkcode Params.block}
+     * or {@linkcode Params.inline} respectively.
+     */
     class ParseComment extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             let c = parseComment(l, s, p, pa!, yp.value);
@@ -1919,6 +1929,12 @@ namespace ini {
             return ap;
         }
     }
+    /**
+     * A command to parse the assignment token when the parser encounters one creating a {@linkcode KeyValue} in the process.\
+     * \
+     * It will throw away any white space before the right hand side value and asserts that if the right handside value is truthy,
+     * then it must be an expression of {@linkcode Text} type. 
+     */
     class Assign extends LeftAndRight {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             // if(pa!.assigned) return s.getCommand(parser.Direction.PREFIX, IDENTIFIER)!.parse(ap, new Token(yp.value, IDENTIFIER, yp.lineStart, yp.lineEnd, yp.startPos), p, l, s, pa);
@@ -1956,6 +1972,13 @@ namespace ini {
             return new KeyValue({preceding: Object.freeze(preceding), inline: pa!.inline}, left, right);
         }
     }
+    /**
+     * A command to parse the section declaration tokens (such as the brackets surrounding the section identifier, the section identifier
+     * and the subsection operators) and all properties declared under the given declaration when the parser encounters them creating a
+     * {@linkcode Section} in the process.\
+     * \
+     * It will throw away any white space after the section declaration.
+     */
     class ParseSection implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             pa!.insideSecName = true;
@@ -2044,6 +2067,12 @@ namespace ini {
             return scope;
         }
     }
+    /**
+     * A command to parse the lexeme (identifier or textual) tokens when the parser encounters them creating a
+     * {@linkcode Text} in the process.\
+     * \
+     * All whitespaces are thrown away except this was called for quoted text. 
+     */
     class ParseText implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             let text = "";
@@ -2192,6 +2221,9 @@ namespace ini {
             return new Text(text, src);
         }
     }
+    /**
+     * A command to parse the eol token when the parser encounters one. It returns `undefined` after consuming all whitespaces and blank lines.
+     */
     class EndLine implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             skipBlankLines(l, s, p, pa!);
@@ -2201,6 +2233,7 @@ namespace ini {
             return ap;
         }
     }
+    /**A special command that parses the whole data*/
     class Initialize implements Command {
         parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer<string>, s: Syntax, pa?: Params | undefined): Expression {
             ap = new Section(emptyComment());
@@ -2221,7 +2254,10 @@ namespace ini {
             return ap;
         }
     }
-    /**@summary A representation of a `.ini` data in memory */
+    /**
+     * @summary A representation of parsed `Token` objects.
+     * @description The result after the parser has returned. This is especially for convenience and documentation purposes.
+     */
     export interface Expression extends expression.GExpression<Format> {
         readonly comments: {
             readonly preceding: readonly string[],
@@ -2230,6 +2266,9 @@ namespace ini {
       format(format: Format, syntax?: Syntax, params?: Params | any): void;
     }
     /**
+     * @summary
+     * A representation of a key assigned to a value.
+     * @description
      * An example of all the different scenarios with a key-value pair
      * ```ini
      * [section]
@@ -2262,6 +2301,9 @@ namespace ini {
           return JSON.stringify(this);
         }
     }
+    /**
+     * A representation of a section name along with it's properties.
+     */
     class Section implements Expression {
         private readonly _map: {[key: string]: Section | Property};
         constructor(public readonly comments: {
@@ -2359,6 +2401,9 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
+    /**
+     * A representation of a property whereby it may contain multiple assignments to various values.
+     */
     class Property implements Expression {
         private readonly _values: KeyValue[];
         public comments: { readonly preceding: readonly string[]; readonly inline?: string | undefined; };
@@ -2416,6 +2461,9 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
+    /**
+     * A representation of a text
+     */
     class Text implements Expression {
         readonly comments;
         constructor(public readonly text: string, public readonly src?: string){
@@ -2438,13 +2486,27 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
-    /**@summary Convenience class to allow for proper return values using `parse` */
+    /**
+     * @summary Convenience class to allow for proper return values using `parse` and for namepsace documentation
+     * @description The `.ini` variant of the {@link parser.PrattParser Vaughn Pratt's parser}
+     */
     export class Parser extends parser.PrattParser<Expression, Syntax> {}
+    /**
+     * @summary The type of value accepted by the {@linkcode Format.append} method.
+     * @description The value that will be sent to (and expected by) {@linkcode Format} objects
+     */
     export type Appendage = string | Expression;
-    /**A base ini format */
+    /**
+     * @summary A base `.csv` format
+     * @description Defines how the {@link Expression parsed expression(s)} is/are outputted.
+     */
     export interface Format<T = any> extends expression.GFormat<Expression, T> {
       append(data: Appendage, s?: Syntax, p?: Params): void;
     }
+    /**
+     * @summary The {@linkcode Expression} output as a string.
+     * @description Builds and stores the parsed `.ini` data as a formatted string, good for quick formatting and testing purposes.
+     */
     export class StringFormat implements Format<string> {
         public readonly logger;
         private _data = "";
@@ -2529,6 +2591,10 @@ namespace ini {
             return utility.compare(this.hashCode32(), obj?.hashCode32());
         }
     }
+    /**
+     * @summary The {@linkcode Expression} output as an in-memory value format.
+     * @description Builds and stores the parsed `.ini` data as a json object.
+     */
     export class JSFormat implements Format<json.Value> {
         private _data: json.Pair = null as unknown as {};
         private _append(data: Section, rv: any, s?: Syntax, p?: Params) {
@@ -2592,6 +2658,10 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
+    /**
+     * @summary The {@linkcode Expression} output written to a file system.
+     * @description Writes the parsed `.ini` data to a file system.
+     */
     export class FileFormat implements Format<ReadStream> {
         public readonly logger;
         private _str: WriteStream;
@@ -2688,6 +2758,9 @@ namespace ini {
             return JSON.stringify(this);
         }
     }
+    /**
+     * @summary The `.ini` port of the converter class.
+     */
     export class Converter extends parser.Converter<parser.GToken<string>, Expression, Syntax, Parser, Params, MutableLexer, any> {
         _transform(
           chunk: any,
@@ -2719,8 +2792,54 @@ namespace ini {
         }
     }
 
-    export const GENERIC = new SyntaxBuilder().build();
+    /**
+     * @summary A generic syntax
+     * @description A syntax that retains all the defaults of the `SyntaxBuilder` class except that it does not retain comments.
+     */
+    export const GENERIC = new SyntaxBuilder().retainComments(false).build();
 
+
+        /**
+         * @summary A syntax for a parser that can parse `.ini` data with syntax prevalent in the unix circles.
+         * @description
+         * A syntax for the data resembling those found frequently unix config files. It has the following features:
+         * - Comments are lines that begin with `'#'`. Inline comments are supported, however,
+         * the parser does not retain comments, hence {@linkcode FileFormat} will not write
+         * comments to a file. To support comment retention do:
+         * ```ts
+         * var syntax = new SyntaxBuilder().rebuild(UNIX).retainComments(true).build();
+         * ```
+         * - `'='` assigns a value to the declared key.
+         * - `'['` begins a section name declaration and `']'` ends it.
+         * - This syntax does supports nesting for section names, and {@linkcode JSFormat} will recognise
+         * them as a nested objects.
+         * - Quoted text is supported and will be parsed as such, either single (`'`) or double (`"`).
+         * Escapes are supported including
+         *  - `\n` for line feed
+         *  - `\t` for tabs
+         *  - `\r` for carriage return
+         *  - `\'` for apostrophes
+         *  - `\"` for double quotes
+         *  - `\\` for backslahes
+         *  - `\0` for the null character
+         *  - `\=` for equals
+         *  - `\[` for left bracket
+         *  - `\]` for right bracket
+         *  - `\#` for number sign
+         *  - `\b` for backspace
+         *  - `\a` for the bell character?
+         *  - and `\` followed by a new line to literarily place a new line within a quoted text.
+         * 
+         * - Escapes are not allowed in none quoted text, they will be parsed as literal.
+         * - Unicode escapes are unsupported.
+         * - The escape character is `'\'`.
+         * - All escaped characters are special characters. All special characters in a quoted text
+         * will be parsed as part of the text irrespective of it's special status.
+         * - All identifiers are of the string type hence {@linkcode Syntax.parse} will always return a `string`.
+         * - Declaring a section more than once with the same identifier will cause the properties of the duplicate
+         * to be merged with into the original. Declaring a property with the same key more than once
+         * will the original to be overridden by the copy.
+         */
     export const UNIX = new SyntaxBuilder()
         .removeCommentChar(";")
         .retainComments(false)
@@ -2732,6 +2851,43 @@ namespace ini {
         .setDuplicateDirective(DuplicateDirective.MERGE, false)
         .build();
 
+
+        /**
+         * @summary A syntax for a parser that can parse `.properties` data.
+         * @description
+         * A syntax that for the data that can be parsed by the JDK's (Java Development Kit) java.util.Properties class.
+         * It has the following features:
+         * - Comments are lines that begin with `'#'` or `'!'`. Inline comments are not supported,
+         * the parser does not retain comments, hence {@linkcode FileFormat} will not write
+         * comments to a file.
+         * - `'='`, `':'`, `'\t'` and `'\f'` assigns a value to the declared key.
+         * - section names cannot be declared
+         * - Quoted text is not supported and will be parsed as a literal. However, non quoted escapes
+         * are supported and they include
+         *  - `\n` for line feed
+         *  - `\t` for tabs
+         *  - `\r` for carriage return
+         *  - `\'` for apostrophes
+         *  - `\"` for double quotes
+         *  - `\\` for backslahes
+         *  - `\0` for the null character
+         *  - `\=` for equals
+         *  - `\:` for colon
+         *  - `\#` for hash symbol
+         *  - `\!` for exclamation mark
+         *  - `\` followed by a literal tab for a literal tab
+         *  - `\b` for backspace
+         *  - `\a` for the bell character?
+         *  - and `\` followed by a new line to literarily place a new line within a quoted text.
+         * 
+         * - Unicode escapes are supported. All unicode escape follow the java convention, where
+         * `'u'` (case insensitive) is the escape and at most 4 hex numerals follow after.
+         * - The escape character is `'\'`.
+         * - All escaped characters are special characters.
+         * - All identifiers are of the string type hence {@linkcode Syntax.parse} will always return a `string`.
+         * - Declaring a property with the same key more than once
+         * will cause the orignal value to be overwritten by the duplicate.
+         */
     export const PROPERTIES = new SyntaxBuilder()
         .removeCommentChar(";")
         .setSectionStart(utility.specialCharacters[0])
@@ -2747,8 +2903,49 @@ namespace ini {
         .supportQuotedText(false)
         .supportNonQuotedEscape(true)
         .removeUnicodeChar('x')
+        .removeUnicodeChar('X')
         .build();
 
+        /**
+         * @summary A syntax for a parser that can parse `.ini` file like the winapi.
+         * @description
+         * A syntax for the data parsable by the winapi. It has the following features:
+         * - Comments are lines that begin with `';'`. Inline comments are not supported,
+         * the parser does not retain comments, hence {@linkcode FileFormat} will not write
+         * comments to a file.
+         * - `'='` assigns a value to the declared key.
+         * - `'['` begins a section name declaration and `']'` ends it.
+         * - This syntax does not support nesting for section names, however, when they are used,
+         * they will be parsed as a single identifier and {@linkcode JSFormat} will not recognise
+         * them as a nested objects.
+         * - Quoted text is supported and will be parsed as such, either single (`'`) or double (`"`).
+         * Escapes are supported including
+         *  - `\n` for line feed
+         *  - `\t` for tabs
+         *  - `\r` for carriage return
+         *  - `\'` for apostrophes
+         *  - `\"` for double quotes
+         *  - `\\` for backslahes
+         *  - `\0` for the null character
+         *  - `\=` for equals
+         *  - `\[` for left bracket
+         *  - `\]` for right bracket
+         *  - `\;` for semicolon
+         *  - `\b` for backspace
+         *  - `\a` for the bell character?
+         *  - and `\` followed by a new line to literarily place a new line within a quoted text.
+         * 
+         * - Escapes are not allowed in none quoted text, they will be parsed as literal.
+         * - Unicode escapes are unsupported.
+         * - The escape character is `'\'`.
+         * - All escaped characters are special characters. All special characters in a quoted text
+         * will be parsed as part of the text irrespective of it's special status.
+         * - All identifiers are of the string type hence {@linkcode Syntax.parse} will always return a `string`.
+         * - Declaring a section more than once with the same identifier will cause the
+         * duplicate to be ignored. Declaring a property with the same key more than once
+         * will cause the duplicate's value to be merged with the original, creating an array of
+         * values mapped to the given key.
+         */
     export const WINAPI = new SyntaxBuilder()
         .removeCommentChar('#')//only ';' is supported
         .supportInline(false)
@@ -2759,6 +2956,8 @@ namespace ini {
         .removeSupportForNesting()//no nesting char needed
         // .supportRelativeNesting(true)// nesting already removed
         .removeUnicodeChar('x')// Donot support unicode escapes
+        .removeUnicodeChar('X')// Donot support unicode escapes
+        .removeUnicodeChar('U')// Donot support unicode escapes
         .removeUnicodeChar('u')// Donot support unicode escapes
         // .supportNonQuotedEscape(false)//already the default
         // .supportQuotedText(true)//already the default
