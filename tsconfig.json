@@ -17,6 +17,6 @@
         "watch": true
     },
     "exclude": [
-        "node_modules", "./src/parser/ini2.ts", "./src/parser/toml.ts", "./src/parser/yaml.ts"
+        "node_modules", "./src/parser/yaml.ts"
     ]
 }
