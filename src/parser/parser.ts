@@ -317,8 +317,9 @@ namespace parser {
     readonly value: T;
   }
   /**
-   * @summary A command issued by a {@link Parser `Parser`} to parse tokens.
+   * @summary A specialised mini-parser that is syntax-specific.
    * @description
+   * A command issued by a {@link Parser `Parser`} to parse tokens.
    * Commands are actions that specifically parse a selection of tokens. In the {@link PrattParser}, commands are retrieved from a {@link Syntax} for toekns
    * they can parse. This is an action that parsers apply to the token stack. This command must know
    * how to parse the next token and if it fails to do so, then a {@link ParseError}
