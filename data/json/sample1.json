@@ -1,0 +1,20 @@
+[
+  {
+    "sibling1": "row1 column1",
+    "sibling2": "row1 column2",
+    "sibling3": ["row1 column3", null],
+    "sibling4": "row1 column5"
+  },
+  {
+    "sibling1": "row2 column1",
+    "sibling2": "row2 column2",
+    "sibling3": ["row2 column3", ["row2 column4"]],
+    "sibling4": "row2 column5"
+  },
+  {
+    "sibling1": "row3 column1",
+    "sibling2": "row3 column2",
+    "sibling3": [null, ["row3 column4"]],
+    "sibling4": "row3 column5"
+  }
+]
