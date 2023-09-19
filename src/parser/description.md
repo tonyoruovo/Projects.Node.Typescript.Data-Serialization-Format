@@ -56,7 +56,7 @@ When looking to create a parser for a set of file extensions, go on to Github.co
 \
 Always set the tab and newline character in the syntax. Relying on the standard \t and \n will prevent many files from different os to be parsed. In the same spirit, also walways set all operators
 \
-Text expression shoulg contain the src and shoulbe declared thus:
+Text expression should contain the src and shoulbe declared thus:
 ```ts
 class Text {
   constructor(formatted: string, src?: string){
