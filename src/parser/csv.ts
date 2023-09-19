@@ -2147,7 +2147,9 @@ namespace csv {
           return this.#av(v, s, (parent as any)[n], col);
         } else {
           //prevent overwrite
-          if(!(parent as any)[n]) (parent as any)[n] = s.parse(v);
+          if(!(parent as any)[n]) {
+            (parent as any)[n] = s.parse(v);
+          }
           return;
         }
       }
@@ -2463,6 +2465,7 @@ namespace csv {
           return callback(e as Error);
         }
       }
+      callback();
     }
   }
   /**
