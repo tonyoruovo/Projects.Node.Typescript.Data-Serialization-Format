@@ -1,772 +1,280 @@
 
-  /**Builds a {@link Syntax} objects. This is the recommended way to create a `Syntax` */
-  export class SyntaxBuilder implements utility.Builder<Syntax> {
-    #enc: parser.Encoding = "utf-8";
-    /**the infix array that hold a 2-length tuple of `Type` and `Command`
-     * the default is `[]`
-     * @defaultValue `[]`*/
-    #infCmdlets: [Type, Command][] = [];
-    /**the prefix array that hold a 2-length tuple of `Type` and `Command`
-     * the default is `[]`
-     * @defaultValue `[]`*/
-    #preCmdlets: [Type, Command][] = [];
-    /**the postfix array that hold a 2-length tuple of `Type` and `Command`
-     * the default is `[]`
-     * @defaultValue `[]`*/
-    #posCmdlets: [Type, Command][] = [];
-    /**A function for getting the correct command based on the direction */
-    #getCmd = (d: parser.Direction, type: Type): Command | undefined => {
-      switch (d) {
-        case parser.Direction.PREFIX:
-        default: {
-          const x = this.#preCmdlets.filter((x) => x[0].equals(type))[0];
-          return x ? x[1] : undefined;
-        }
-        case parser.Direction.INFIX: {
-          const x = this.#infCmdlets.filter((x) => x[0].equals(type))[0];
-          return x ? x[1] : undefined;
-        }
-        case parser.Direction.POSTFIX:
-          const x = this.#posCmdlets.filter((x) => x[0].equals(type))[0];
-          return x ? x[1] : undefined;
+  // export type Location = {
+  //   readonly x: number;
+  //   readonly y: number;
+  // }
+  // export const locate = (x = 0, y = 0) => ({x, y} as Location);
+
+  export const Struct = ({format = (s: json.Value) => String(s ?? ""), parse = (s: string) => s as json.Value, header = undefined as unknown as string[]}) => {
+    let table = [] as json.Pair[];
+    const h = header??[];
+    let row = 0 as any;
+
+    const isHeader = (obj: json.Pair) => {
+      for (const k in obj) {
+        if(k !== obj[k]) return false;
       }
-    };
-    /**
-     * Registers a type (which is compatible with infix tokens) with the corresponding command that can parse that type.
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible infix type.
-     * @param {CSV} cmd the command which can parse infix tokenlets into expression(s)
-     * @returns {SyntaxBuilder} the same builder object for method chaining
-     */
-    public addInfixCommand(type: Type, cmd: Command): SyntaxBuilder {
-      this.#infCmdlets.push([type, cmd]);
-      return this;
-    }
-    /**
-     * Registers a type (which is compatible with prefix tokens) with the corresponding command that can parse that type.
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible prefix type.
-     * @param {CSV} cmd the command which can parse prefix tokenlets into expression(s)
-     * @returns {SyntaxBuilder} the same builder object for method chaining
-     */
-    public addPrefixCommand(type: Type, cmd: Command): SyntaxBuilder {
-      this.#preCmdlets.push([type, cmd]);
-      return this;
-    }
-    /**
-     * Registers a type (which is compatible with postfix tokens) with the corresponding command that can parse that type.
-     * @param {Type} type the type with which to query this command. This is expected to be a compatible postfix type.
-     * @param {CSV} cmd the command which can parse postfix tokenlets into expression(s)
-     * @returns {SyntaxBuilder} the same builder object for method chaining
-     */
-    public addPostfixCommand(type: Type, cmd: Command): SyntaxBuilder {
-      this.#posCmdlets.push([type, cmd]);
-      return this;
-    }
-    /**
-     * Sets the {@link parser.Syntax.encoding encoding} property of the syntax to be built
-     * @param {parser.Encoding} enc the encoding to be set
-     * @returns {SyntaxBuilder} the same builder object for method chaining
-     */
-    public setEncoding(enc: parser.Encoding): SyntaxBuilder {
-      this.#enc = enc;
-      return this;
-    }
-    /**
-     * Builds a `Syntax` object and returns it given all the options that were set. If any values apart from {@link Syntax.quotesType} is set to undefined, an invalid object will be built
-     * and the behaviour of the resulting object will be undefined (unpredictable).
-     * @returns {Syntax} a `Syntax` object.
-     * @throws {TypeError} if the line terminator is the same as the separator or any of them are whitespaces (as defined by {@link Syntax.isWhitespace}).
-     */
-    public build(): Syntax {
-      return {
-        getCommand: this.#getCmd,
-        encoding: this.#enc
-      };
-    }
-    /**
-     * @inheritdoc
-     * @throws {TypeError} @see build for details on the error thrown
-     */
-    public rebuild(from: Syntax): SyntaxBuilder {
-      this.#getCmd = from.getCommand;
-      this.#enc = from.encoding;
-      return this;
-    }
-    /**@inheritdoc */
-    public clear(): SyntaxBuilder {
-      this.#enc = "utf-8";
-      this.#infCmdlets = [];
-      this.#preCmdlets = [];
-      this.#posCmdlets = [];
-      this.#getCmd = (d: parser.Direction, type: Type): Command | undefined => {
-        switch (d) {
-          case parser.Direction.PREFIX:
-          default: {
-            const x = this.#preCmdlets.filter((x) => x[0].equals(type))[0];
-            return x ? x[1] : undefined;
-          }
-          case parser.Direction.INFIX: {
-            const x = this.#infCmdlets.filter((x) => x[0].equals(type))[0];
-            return x ? x[1] : undefined;
-          }
-          case parser.Direction.POSTFIX:
-            const x = this.#posCmdlets.filter((x) => x[0].equals(type))[0];
-            return x ? x[1] : undefined;
-        }
-      };
-      return this;
-    }
-  }
-  export interface Syntax extends parser.GSyntax<Type, Command> {
-  }
-  export class Params {}
-  export class Type implements parser.GType<string> {
-    /**
-     * Constructs a `Type` with an assigned unique id and precedence.
-     * @param {string} id a unique id associated with this {@link parser.Type}
-     * @param {number} precedence the precedence of this type. This determines how it will be evaluated in the evaluation hierarchy (per se)
-     */
-    public constructor(
-      public readonly id: string,
-      public readonly precedence: number
-    ) {}
-    #stringifyVal(){
-      switch (this.id) {
-        case "0": return "NULL";
-        case "1": return "BOOLEAN";
-        case "2": return "NUMBER";
-        case "3": return "STRING";
-        case "4": return "OBJECT";
-        case "5": return "ASSIGNMENT";
-        case "6": return "SEPARATOR";
-        case "7": return "ARRAY";
-        case "8": return "END_OBJECT";
-        case "9": return "END_ARRAY";
-        default:
-          return "";
-      }
+      return true;
     }
 
     /**
-     * Test the equality of this `Type` to the given input
-     * @param {(object|undefined)} obj any object to test against `this`
-     * @returns {boolean} `true` if `this` is equal to the input and `false` if otherwise.
+     * Joins the argument array using the syntax for nested arrays and object
+     * @param p 
+     * @param s 
+     * @returns 
      */
-    public equals(obj?: object): boolean {
-      if (obj instanceof Type)
-        return this.id === obj.id && this.precedence === obj.precedence;
-      return false;
+    const weldPath = (p: (number | string)[], s: Syntax) => {
+      let k = "";
+      for (const e of p) {
+        k += typeof e === "number" ? (s.nap??"") : (s.nop??"");
+        k += e;
+      }
+      return k;
     }
-    public toString() {
-      return `{ id: ${this.#stringifyVal()}, precedence: ${this.precedence} }`;
+
+    const readjust: (f: string) => void = f => {
+      // table.forEach(x => x[f] = null as any);
+      for (let i = 0; i < table.length; i++) {
+        if(table[i][f] === undefined) table[i][f] = null as any;
+      }
     }
-  }
 
-  export const NULL = new Type("0", 2);
-  export const BOOLEAN = new Type("1", 2);
-  export const NUMBER = new Type("2", 2);
-  export const STRING = new Type("3", 2);
-  export const OBJECT = new Type("4", 2);
-  export const END_OBJECT = new Type("8", 0);
-  export const ASSIGNMENT = new Type("5", 1);
-  export const SEPARATOR = new Type("6", 1);
-  export const ARRAY = new Type("7", 2);
-  export const END_ARRAY = new Type("9", 0);
+    //true means an assignment was completed. Assignment may not be completed if the path of header provider is
+    //shorter than the object. In this case, a cache will be reserved and when the cache is ready, the result
+    // will be stringified 
+    const ah: (d: json.Value, s: Syntax, n: string, t?: string[]) => boolean = (d, s, n, t) => {//apply header
+      if(typeof t === "undefined"){
+        const a = [] as string[];
+        split(n, s, a);
+        return ah(d, s, n, t);
+      } else if(t.length === 0) {
+        if(json.isAtomic(d)) {
+          if(!table[row]) table[row] = {};
+          table[row][n] = d;
+          return true;
+        }
+        if(!table[row]) table[row] = {};
+        table[row][n] = "";
+        return false;
+      }
+      const nm = fixFieldName(t.shift()!, s);
+      d = d ? d : typeof nm === "string" ? {} : [];
+      return ah((d as any)[nm], s, n, t);
+    }
 
-  /**
-   * A constant representing an end of file or an end of stream or an end of parsing (for strings)
-   * @type {Type}
-   * @readonly
-   */
-  export const EOF: Type = new Type("-1", Number.MIN_SAFE_INTEGER);
-  /**
-   * @summary a class that represents a string of characters that individually represent a logical portion of a json document.
-   * @description a json implementation of the {@link parser.Token token interface} meant for conveying data about a sub-text. Although each {@link Token.value value} is unique,
-   * there are expected to be 4 types of token namely:
-   * - {@link FIELD fields}: these are tokens that can start an expression (depending on the syntax) and end an expression but cannot be subsequent in a record (same line).
-   * - {@link SEPARATOR separator}: these are tokens that can be found between 2 fields.
-   * - {@link EOL line terminator}: these are tokens that mark a complete record or an end of a line.
-   * - {@link EOF end-of-file}: these are tokens that mark a complete document or the end of a file.
-   */
-  export class Token extends Object implements parser.GToken<string> {
-    public readonly length;
+    const rec: (d: (string|number)[], v?: json.Value) => json.Value = (d, v) => {
+      if(d.length === 0) {
+        return v!;
+      }
+      const n = d.shift()!;
+      const val = typeof n === "string" ? {} : [];
+      v = v ? (v as any)[n] = val : val;
+      return rec(d, v);
+    }
+
     /**
-     * Constructs a `Token`
-     * @param {string} value the intrinsic content of this token
-     * @param {Type} type the type of this token
+     * Populates the table with a stream of array values. This method is meant to be called repeatedly in a writer or stream
+     * for objects. The data is either an atomic value as defined by `json.isAtomic` or an array stating the path traversed to
+     * the atomic value. For example: `[0, "key", null]` translates to `[{key: null}]`. Every array index traversed will store
+     * that location (index) as a number and every property traversed will also store that location (key) as string.
+     * @param data an tomic value or an array of number or string with the actual payload at the last index
+     * @param s 
+     * @param p 
      */
-    public constructor(
-      public readonly value: string,
-      public readonly type: Type,
-      public readonly lineStart: number,
-      public readonly lineEnd: number,
-      public readonly startPos: number
-    ) {
-      super();
-      this.length = value.length;
+    const consume = (data: json.Value, s: Syntax, p: Params) => {
+      if(json.isAtomic(data)){
+        if(!header) {
+          h.push(typeof data === "string" ? data : data === null ? "" : JSON.stringify(data));
+          table[row][h[0]] = 0;
+        } else if(h.length === 1){
+          table[row][h[0]] = (typeof data === "string" ? data : data === null ? "" : JSON.stringify(data))
+        } else throw Error("unsupported data type", {cause: {header: h, data}});
+      } else if(Array.isArray(data)){
+        if(data[0] !== row) {//new row
+          row = data[0];
+        }
+        // if(typeof data[0] === "number") {//An array
+        if(!header){//headerless, hence infer from data
+          const value = data.pop();
+          //Arrays in the form Object[] will only have their
+          //element extracted. Their indexes will not be included
+          if(data.length > 1 && typeof data[1] === "string"){
+            data.shift();
+          }
+          const k = weldPath(data as (number | string)[], s);
+          if(h.indexOf(k) < 0) {
+            h.splice(row, 0, k);
+            readjust(k);
+          }
+          if(!table[row]) table[row] = {};
+          table[row][k] = value!
+        } else {//has header, apply it to the data
+          // const rv = ah(data, s, h[row]);
+          ah(rec(data as any), s, h[row]);//recompose the data and apply header
+        }
+        // } else if(typeof data[0] === "string") {//an object
+        //   if(!header) {
+        //   } else {
+        //   }
+        // }
+      } else throw Error("unsupported data type", {cause: {header: h, data}});
     }
-    public override toString() {
-      return `{ token: ${this.value}, type: ${this.type.toString()} }`;
-    }
-  }
-  export interface MutableLexer extends parser.MutableLexer<Token, Syntax> {
-    end(syntax: Syntax, p: unknown): void;
-    end(syntax: Syntax, p: Params): void;
-    process(chunk: any, syntax: Syntax, p: unknown): void;
-    process(chunk: any, syntax: Syntax, p: Params): void;
-  }
-  export class StringLexer implements MutableLexer {
-    // #lqt?: Token;//last queried token
-    #ln: number; //the current line being being read from. This value is reset each time a line terminator is encountered outside of a quoted string.
-    #li: number; //the character's position in the line that is being analysed. This value is reset each time a new character is being analysed
-    // #token?: string;//the text currently being analysed as a token
-    public src: string[]; //an array characters read from a stream
-    #op: string; //the current field value. When this prop's length at least 1, there a field is being read
-    #queue: Token[]; //an array of already-made token objects
-    constructor() {
-      this.#ln = 1;
-      this.#li = 0;
-      this.src = [];
-      this.#op = "";
-      this.#queue = [];
-    }
-    #isNumber(store: string, current: string): boolean {
-      if(store.length === 0){
-        return current === "+" || current === "-" || current === "." || /^[0-9]$/.test(current);
-      }
-      store = store.toLowerCase();
-      switch (current) {
-        case ".":
-          return store.indexOf(".") < 0 && store.indexOf("e") < 0;
-        case "e":
-        case "E":
-          return store.indexOf("e") < 0 && /^\d$/.test(store[store.length - 1]);
-        case "+":
-        case "-":
-          return store.endsWith("e");
-        default:
-      }
-      return /^[0-9]$/.test(current);
-    }
-    #numIsInRange(s: string){
-      return s.length > 0 && Number.parseFloat(s).toString() === s;
-    }
-    #isProperlyClosed(s: string){
-      return s.startsWith("\"") && s.length > 1 && s.endsWith("\"") && (s.lastIndexOf("\\") !== s.length - 2 || this.#numOfBS(s) % 2 === 0);
-    }
-    #numOfBS(s: string): number {
-      let count = 0;
-      for (let i = 0; i < s.length; i++) {
-        if(s[i] === "\\") count++;
-      }
-      return count;
-    }
-    // #processOperator(operator: stri)
-    #splitChunk(chunk: string) {
-      const string = new Array<string>();
-      for (let i = 0; i < chunk.length; i++) string.push(chunk[i]);
-      return string.length < 2 ? chunk : string;
-    }
-    #manufacture(token: Token) {
-      // this.#queue.push(this.#lqt = token);
-      this.#queue.push(token);
-    }
-    public indexOf(type: parser.Type) {
-      for (let i = 0; i < this.#queue.length; i++) {
-        if (this.#queue[i].type.equals(type)) return i;
-      }
-      return -1;
-    }
-    public lastIndexOf(type: parser.Type) {
-      for (let i = this.#queue.length - 1; i >= 0; i--) {
-        if (this.#queue[i].type.equals(type)) return i;
-      }
-      return -1;
-    }
-    end(syntax: Syntax, params: unknown): void;
-    public end(syntax: Syntax, params: Params): void {
-      //for numbers only lexing such as from a file that only contains a number
-      if(this.#numIsInRange(this.#op)) this.#manufacture(new Token(this.#op, NUMBER, this.line(), this.line(), this.position() - this.#op.length));
-      this.#op = "";
-    }
-    unprocessed = () => this.src!;
-    processed = () => this.#queue!;
-    frequency(type: parser.Type): number {
-      let frqy = 0;
-      for (let i = 0; i < this.#queue.length; i++) {
-        if (this.#queue[i].type.equals(type)) frqy++;
-      }
-      return frqy;
-    }
-    hasTokens(): boolean {
-      return this.#queue.length > 0;
-    }
-    canProcess(): boolean {
-      return this.src.length > 0;
-    }
-    process(chunk: string, syntax: Syntax, params: unknown): void;
-    process(chunk: string, syntax: Syntax, params: Params) {
-      if (chunk.length > 0) {
-        const string = this.#splitChunk(chunk);
-        if (Array.isArray(string)) string.forEach((x) => this.src.push(x));
-        else this.src.push(string);
-      }
-      while (this.src.length > 0) {
-        const token = this.src.shift()!;
-        this.#li++;
 
-        if(this.#isNumber(this.#op, token)){
-          this.#op += token;
-          continue;
-        } else if(this.#numIsInRange(this.#op)){
-          this.#manufacture(new Token(this.#op, NUMBER, this.line(), this.line(), this.position() - this.#op.length));
-          this.#op = "";
-        }
+    const swapRow = (x = 0, y = 1) => {
+      const xv = table[x];
+      table[x] = table[y];
+      table[y] = xv;
+    }
+    const srow = swapRow;
+    const swapCol = (x = 0, y = 1) => {
+      const xv = h[x];
+      h[x] = h[y];
+      h[y] = xv;
+    }
+    const scol = swapCol;
+    const swapCell = (x0 = 0, y0 = 0, x1 = 0, y1 = 0) => {
+      const $0 = table[x0][h[y0]];
+      table[x0][h[y0]] = table[x1][h[y1]];
+      table[x1][h[y1]] = $0;
+    }
+    const swapCell2 = (row0: number, col0: string, row1: number, col1: string) => {
+      const $0 = table[row0][col0];
+      table[row0][col0] = table[row1][col1];
+      table[row1][col1] = $0;
+    }
+    const scell = (r0: number, c0: number | string, r1: number, c1: number | string) => {
+      return (typeof c0 === "number" && typeof c1 === "number" ? swapCell(r0, c0, r1, c1) : swapCell2(r0, c0 as string, r1, c1 as string))
+    }
+    const swap = ({x0 = 0, y0 = 0 as number | string, x1 = undefined as any as number, y1 = undefined as any as number | string, type = true}) => {
+      type = !!type;
+      if(x1 === undefined && y1 === undefined){
+        if(type) return srow(x0, y0 as number);
+        else return scol(x0, y0 as number);
+      }
+      return scell(x0, y0, x1, y1);
+    }
 
-        if("null".startsWith(this.#op + token)){
-          this.#op += token;
-          if(this.#op === "null"){
-            this.#manufacture(new Token(this.#op, NULL, this.line(), this.line(), this.position() - this.#op.length));
-            this.#op = "";
-          }
-        } else if("false".startsWith(this.#op + token)){
-          this.#op += token;
-          if(this.#op === "false"){
-            this.#manufacture(new Token(this.#op, BOOLEAN, this.line(), this.line(), this.position() - this.#op.length));
-            this.#op = "";
-          }
-        } else if("true".startsWith(this.#op + token)){
-          this.#op += token;
-          if(this.#op === "true"){
-            this.#manufacture(new Token(this.#op, BOOLEAN, this.line(), this.line(), this.position() - this.#op.length));
-            this.#op = "";
-          }
-        } else if(this.#op.startsWith("\"")) {
-          this.#op += token;
-          if(this.#isProperlyClosed(this.#op)){
-            this.#manufacture(new Token(this.#op, STRING, this.line(), this.line(), this.position() - this.#op.length));
-            this.#op = "";
-          }
-        } else {
-          switch (token) {
-            case "[":{
-              this.#manufacture(new Token(token, ARRAY, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case "{":{
-              this.#manufacture(new Token(token, OBJECT, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case ":":{
-              this.#manufacture(new Token(token, ASSIGNMENT, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case ",":{
-              this.#manufacture(new Token(token, SEPARATOR, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case "]":{
-              this.#manufacture(new Token(token, END_OBJECT, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case "}":{
-              this.#manufacture(new Token(token, END_ARRAY, this.line(), this.line(), this.position() - token.length));
-              break;
-            }
-            case "\"":{
-              this.#op += token;
-              break;
-            }
-            default:
-          }
-        }
-        if("\n" === token) {
-          this.#li = 0;
-          this.#ln++;
+    const tf = () => {
+      const t = [] as typeof table;
+      const d = {} as any;
+      for (let row = 0; row < table.length; row++) {
+        for (const k in table[row]) {
+          if(d[k] === undefined) d[k] = [];
+          d[k].push(table[row][k]);
         }
       }
-      // console.table(this.#queue);
     }
-    position(): number {
-      return this.#li;
-    }
-    line(): number {
-      return this.#ln;
-    }
-    next(): Token {
-      while (true) {
-        if (!this.hasTokens()) break;
-        return this.#queue!.shift()!;
-      }
-      return new Token("", EOF, this.line(), this.line(), this.position());
-    }
-  }
-  export class Parser extends parser.PrattParser<Expression, Syntax> {}
-  export interface Command
-    extends parser.GCommand<Token, Expression, Syntax, MutableLexer, Parser> {
-    parse(
-      ap: Expression,
-      yp: Token,
-      p: Parser,
-      l: MutableLexer,
-      s: Syntax,
-      pa?: Params
-    ): Expression;
-  }
-  export class ValueCmd implements Command {
-    parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer, s: Syntax, pa?: Params | undefined): Expression {
-      return new Val(yp.value);
-    }
-  }
-  export class ObjCmd implements Command {
-    parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer, s: Syntax, pa?: Params | undefined): Expression {
-      const object: {[p: string]: Expression} = {};
-      if(!p.match(END_OBJECT, l, s, pa)){
-        while(true){
-          const key = p.consume(STRING, l, s, pa);
-          p.consume(ASSIGNMENT, l, s, pa);
-          object[key.value] = p.parse(l, s, pa);
-          if(p.match(SEPARATOR, l, s, pa)) p.consume(SEPARATOR, l, s, pa);
-          else break;
+    const tb = () => {
+      const t = [] as typeof table;
+      const d = {} as any;
+      for (let row = table.length - 1; row >= 0; row--) {
+        for (const k in table[row]) {
+          if(d[k] === undefined) d[k] = [];
+          d[k].unshift(table[row][k]);
         }
       }
-      p.consume(END_OBJECT, l, s, pa);
-      return new Obj(object);
     }
-  }
-  export class ArrCmd implements Command {
-    parse(ap: Expression, yp: Token, p: Parser, l: MutableLexer, s: Syntax, pa?: Params | undefined): Expression {
-      const array: Expression[] = [];
-      if(!p.match(END_ARRAY, l, s, pa)){
-        while(true){
-          array.push(p.parse(l, s, pa));
-          if(p.match(SEPARATOR, l, s, pa)) p.consume(SEPARATOR, l, s, pa);
-          else break;
-        }
+    const transpose = (forward = true) => {
+      if(forward === true) return tf();
+      else if(forward === false) return tb();
+    }
+
+    const flip = () => {
+      const l = Math.floor(table.length / 2);
+      for (let i = 0; i < l; i++) {
+        swapRow(i, table.length - i);
       }
-      p.consume(END_ARRAY, l, s, pa);
-      return new Arr(array);
     }
-  }
-  export interface Expression extends expression.GExpression<Format> {
-    format<P extends any>(format: Format, params?: P): void;
-    format(format: Format, params?: Params, syntax?: Syntax): void;
-  }
-  export class Val implements Expression {
-    constructor(public readonly val: string){}
-    format<P extends unknown>(format: Format<any>, params?: P | undefined): void;
-    format(format: Format<any>, params?: Params | undefined, syntax?: Syntax | undefined): void {
-      format.append(this.val, params, syntax);
-    }
-    debug(): string {
-      return this.val;
-    }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
-    equals(obj?: object | undefined): boolean {
-      if (obj instanceof Val) return this.compareTo(obj) === 0;
-      return false;
-    }
-    hashCode32(): number {
-      //true because this is a terminal expr
-      return utility.hashCode32(true, utility.asHashable(this.val));
-    }
-    toString(): string {
-      return this.debug();
-    }
-  }
-  export class Obj implements Expression {
-    constructor(public readonly obj: { [p: string]: Expression }){}
-    format<P extends unknown>(format: Format<any>, params?: P | undefined): void;
-    format(format: Format<any>, params?: Params | undefined, syntax?: Syntax | undefined): void {
-      format.append(this, params, syntax);
-    }
-    debug(): string {
-      let s = "{";
-      const l = Object.keys(this.obj).length;
-      let c = 1;
-      for (const p in this.obj) {
-        s += this.obj[p].debug();
-        s += c < l ? "," : "";
-        c++;
+
+    const rows = function*() {
+      let r = 0;
+      while(r < table.length){
+        yield table[r];
+        r++;
       }
-      // if(s.endsWith(",")) s = s.substring(0, s.length - 1);
-      s += "}"
-      return s;
     }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
+    const rw = (index = 0) => table[index];
+
+    const columns = function*() {
+      for (let i = 0; i < h.length; i++) {
+        const col = [] as string[];
+        table.forEach(r => {
+          col.push(r[h[i]] as string);
+        });
+        yield col;
+      }
     }
-    equals(obj?: object | undefined): boolean {
-      if (obj instanceof Obj) return this.compareTo(obj) === 0;
-      return false;
-    }
-    hashCode32(): number {
-      //true because this is a terminal expr
-      return utility.hashCode32(true, utility.asHashable(this.obj));
-    }
-    toString(): string {
-      return this.debug();
-    }
-  }
-  export class Arr implements Expression {
-    constructor(public readonly arr: Expression[]){}
-    format<P extends unknown>(format: Format<any>, params?: P | undefined): void;
-    format(format: Format<any>, params?: Params | undefined, syntax?: Syntax | undefined): void {
-      format.append(this, params, syntax);
-    }
-    debug(): string {
-      let s = "[";
-      const l = this.arr.length;
-      this.arr.forEach((e, i) => {
-        s += e.debug();
-        s += i < (l - 1) ? "," : "";
+    const column = (index = 0) => {
+      const col = [] as string[];
+      table.forEach(r => {
+        col.push(r[h[index]] as string);
       });
-      s += "]"
-      return s;
+      return col;
     }
-    compareTo(obj?: expression.Expression | undefined): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
-    equals(obj?: object | undefined): boolean {
-      if (obj instanceof Obj) return this.compareTo(obj) === 0;
-      return false;
-    }
-    hashCode32(): number {
-      //true because this is a terminal expr
-      return utility.hashCode32(true, utility.asHashable(this.arr));
-    }
-    toString(): string {
-      return this.debug();
-    }
-  }
-  /**A base json format */
-  export interface Format<T = any> extends expression.GFormat<Expression, T> {
-    append(data: any, p?: Params, s?: Syntax): void;
-  }
-  export class StringFormat implements Format<string> {
-    #value;
-    public constructor(initialValue?: string) {
-      this.#value = initialValue || "";
-      this.modifications = 0;
-      this.bpc = 8;
-      this.bpn = 32;
-    }
-    append(
-      data: any,
-      p?: Params | undefined,
-      s?: Syntax | undefined
-    ): void {
-      if (typeof data === "string") {
-        this.#value += data;
-        this.modifications++;
-      } else if (data instanceof Obj) {
-        this.append("{", p, s);
-        const l = Object.keys(data.obj).length;
-        let c = 1;
-        for(const pr in data.obj){
-          this.append(pr, p, s);
-          this.append(":", p, s);
-          data.obj[pr].format(this, p, s);
-          if(c < l) this.append(",", p, s);
+    const cells = function*() {
+      for (let i = 0; i < h.length; i++) {
+        yield h[i];
+      }
+      for (let row = 0; row < table.length; row++) {
+        for (const col in table[row]) {
+          yield table[row][col];
         }
-        this.append("}", p, s);
-      } else if (data instanceof Arr) {
-        this.append("[", p, s);
-        const l = data.arr.length;
-        data.arr.forEach((e, i) => {
-          e.format(this, p, s);
-          if(i < (l - 1)) this.append(",", p, s);
-        });
-        this.append("]", p, s);
       }
     }
-    data(): string {
-      return this.#value;
+    const cell = (row = 0, col = 0) => {
+      return table[row][col];
     }
-    reverse(): expression.GFormat<Expression, string> {
-      return new StringFormat(this.#value.split("").reverse().join(""));
+    const setR = (r: number, data: json.Pair) => {
+      if(Object.keys(data) === h) table[r] = data;
     }
-    equals(another: expression.GFormat<Expression, string>): boolean {
-      if (another instanceof StringFormat) return this.compareTo(another) === 0;
-      return false;
-    }
-    modifications: number;
-    public readonly bpc: number;
-    public readonly bpn: number;
-    hashCode32(): number {
-      return utility.hashCode32(
-        false,
-        utility.asHashable(this.#value),
-        utility.asHashable(this.modifications),
-        utility.asHashable(this.bpc),
-        utility.asHashable(this.bpn)
-      );
-    }
-    toJSON(): string {
-      return JSON.stringify(
-        {
-          value: this.#value,
-          modifications: this.modifications
-        },
-        null,
-        2
-      );
-    }
-    compareTo(
-      obj?: expression.GFormat<Expression, string> | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
-  }
-  export class JSFormat
-    implements
-      Format<any>
-  {
-    #value?:any;
-    constructor(value: any = undefined) {
-      this.#value = value;
-    }
-    append(data: any, p?: Params, s?: Syntax): void {
-      //TODO remember to tackle null fields
-      if (typeof data === "string") {
-        this.#value = data;
-        this.modifications++;
-      } else if (data instanceof Obj) {
-        for(const pr in data.obj){
-          const f = new JSFormat();
-          data.obj[pr].format(f, p, s);
-          this.#value[pr] = f.#value;
-          this.modifications += f.modifications;
-        }
-      } else if (data instanceof Arr) {
-        this.#value = [...data.arr];
-        (this.#value as Expression[]).map(x => {
-          const f = new JSFormat();
-          x.format(f, p, s);
-          this.modifications += f.modifications;
-          return f.#value;
-        });
-      } else
-        throw new expression.FormatError("unknown format for csv expression");
-    }
-    reverse(): JSFormat {
-      return new JSFormat(
-        Array.isArray(this.#value)
-          ? this.#value.reverse()
-          : typeof this.#value === "string"
-          ? this.#value.split("").reverse().join("")
-          : this.#value
-      );
-    }
-    equals(
-      another: expression.GFormat<
-        Expression,
-        string | null | (string | null)[] | { [p: string]: string | null }[]
-      >
-    ): boolean {
-      return this.compareTo(another) === 0;
-    }
-    data():
-      | string
-      | null
-      | (string | null)[]
-      | { [p: string]: string | null }[] {
-      return this.#value!;
-    }
-    modifications: number = 0;
-    bpc: number = 8;
-    bpn: number = 32;
-    hashCode32(): number {
-      return utility.hashCode32(
-        false,
-        utility.asHashable(this.modifications),
-        utility.asHashable(this.bpc),
-        utility.asHashable(this.bpn),
-        utility.asHashable(this.#value)
-      );
-    }
-    toJSON(): string {
-      return JSON.stringify(this, null, 2);
-    }
-    compareTo(
-      obj?:
-        | expression.GFormat<
-            Expression,
-            string | null | (string | null)[] | { [p: string]: string | null }[]
-          >
-        | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
-    }
-  }
-  export class FileFormat implements Format<fs.ReadStream> {
-    constructor(filename: string) {
-      this.bpc = 8; //8 bits per character
-      this.bpn = 32; //32 bits floating point
-      this.#fs = filename;
-      this.#ws = fs.createWriteStream(filename, "utf-8");
-    }
-    append(data: any, p?: Params, s?: Syntax): void {
-      if (typeof data === "string") {
-        this.#ws.write(data as string);
-        this.modifications++;
-      } else if (data instanceof Obj) {
-        this.append("{", p, s);
-        const l = Object.keys(data.obj).length;
-        const c = 1;
-        for(const pr in data.obj){
-          this.append(pr, p, s);
-          this.append(":", p, s);
-          data.obj[pr].format(this, p, s);
-          if(c < l) this.append(",", p, s);
-        }
-        this.append("}", p, s);
-      } else if (data instanceof Arr) {
-        this.append("[", p, s);
-        const l = data.arr.length;
-        data.arr.forEach((e, i) => {
-          e.format(this, p, s);
-          if(i < (l - 1)) this.append(",", p, s);
-        });
-        this.append("]", p, s);
-      }
-    }
-    reverse(): expression.GFormat<Expression, fs.ReadStream> {
-      return this;
-    }
-    equals(another: expression.GFormat<Expression, fs.ReadStream>): boolean {
-      return this.compareTo(another) === 0;
-    }
-    data(): fs.ReadStream {
-      this.#ws.end();
-      this.#ws.close();
-      return fs.createReadStream(this.#fs, {
-        autoClose: true,
-        encoding: "utf-8",
+    const setC = (n: string | number, data: string[]) => {
+      if(typeof n === "number")
+      table.forEach((x, i) => {
+        x[h[n]] = data[i];
+      });
+      else table.forEach((x, i) => {
+        x[n] = data[i];
       });
     }
-    public modifications: number = 0;
-    bpc: number;
-    bpn: number;
-    #fs; //file system
-    #ws; //write stream
-    hashCode32(): number {
-      return utility.hashCode32(
-        false,
-        utility.asHashable(this.modifications),
-        utility.asHashable(this.bpc),
-        utility.asHashable(this.bpn),
-        utility.asHashable(this.#fs),
-        utility.asHashable(this.#ws)
-      );
+    const setCell = (r = 0, c = 0 as number | string, v: string) => {
+      if(typeof c === "number") table[r][h[c]] = v;
+      else table[r][c] = v;
     }
-    toJSON(): string {
-      return "";
+    const set = ({x = 0, y = undefined, type = true, data}: {x?: number,y?: number, type?:boolean,data:json.Value}) => {
+      type = !!type;
+      if(y === undefined){
+        if(type) return setR(x, data as json.Pair);
+        else return setC(x, data as string[]);
+      }
+      return setCell(x, y, data as string);
     }
-    compareTo(
-      obj?: expression.GFormat<Expression, fs.ReadStream> | undefined
-    ): utility.Compare {
-      return utility.compare(this.hashCode32(), obj?.hashCode32());
+    const getR = (r: number) => table[r];
+    const getC = (n: string | number) => {
+      const d = [] as string[];
+      if(typeof n === "number"){
+        table.forEach((x, i) => {
+          d.push(x[h[n]] as any);
+        });
+        return d;
+      }
+      table.forEach((x, i) => {
+        d.push(x[n] as any);
+      });
+      return d;
     }
-  }
+    const getCell = (r = 0, c = 0 as number | string) => {
+      if(typeof c === "number") return table[r][h[c]];
+      return table[r][c];
+    }
+    const get = ({x = 0, y = undefined, type = true}: {x?: number,y?: number, type?:boolean}) => {
+      type = !!type;
+      if(y === undefined){
+        if(type) return getR(x);
+        else return getC(x);
+      }
+      return getCell(x, y);
+    }
+
+    return {consume, table, rowNum: row,/*merge, */transpose, flip, swap, header: h, isReadonly: false, rows, row: rw, columns, column, cells, cell, set, get, parse, format};
+  };
+  
