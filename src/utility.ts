@@ -488,9 +488,15 @@ namespace utility {
     }
     /**
      * Maps the given key to the value and stores them in this table if the key does not exist, if it does, it will overwrite it's value with the value given here.
-     * @param key the key of the value to be stored
-     * @param value the value to be stored
+     * @param {K} key the key of the value to be stored
+     * @param {V} value the value to be stored
      * @returns {Table<K, V>} as a convention of the {@link Map.set `Map.set`} object, returns this table
+     * @ignore
+     * Take the key, hash it, then use the hash to attempt a read operation for potential keys with the same hash.
+     * If the value read is invalid then this operation is a set, else if the value read is valid, then compare the value to the
+     * argument key, if they are unequal, then this operation will be a set else if they are equal then a collison hash ocurred and
+     * another hash has to be calculated for the new value and the hash function need to change for values begining and ending with
+     * the same string as the argument.
      */
     set(key: K, value: V): Table<K, V> {
       const index = this.getIndex(key);
@@ -508,7 +514,7 @@ namespace utility {
 
     /**
      * Deletes the given key alongside it's corresponding value if the key exists. Will return `true` for a successful removalof the given key.
-     * @param key the key of the value to be deleted
+     * @param {K} key the key of the value to be deleted
      * @returns {boolean} `true` for a successful deletion else `false`
      */
     delete(key: K): boolean {
@@ -551,6 +557,8 @@ namespace utility {
     /**
      * Gets the generator for all keys in this table.
      * @returns {Generator<K, void, undefined>} a generator of all the keys in this table
+     * @generator
+     * @yields {K} the next key
      */
     *keys(): Generator<K, void, undefined> {
       let i = 0;
@@ -2185,6 +2193,9 @@ namespace utility {
     }
     return start;
   }
+  /**
+   * @summary Pseudorandom string
+   */
 }
 
 export default utility;
