@@ -2036,10 +2036,6 @@ namespace ini {
       while (this.src.length > 0) {
         const token = this.#shiftSrc(1)!;
         this.#li++;
-        if (token === this.#eol) {
-          this.#ln++;
-          this.#li = 0;
-        }
         if (!this.#escEven()) {
           if (this.#escText.length === 0) {
             this.#escText += token;
@@ -2057,7 +2053,7 @@ namespace ini {
                 this.#text = "";
               }
               this.#manufacture(
-                new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li)
+                new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li - this.#escText.length)
               );
               this.#escText = "";
               this.#esc = 0;
@@ -2078,7 +2074,7 @@ namespace ini {
                 this.#text = "";
               }
               this.#manufacture(
-                new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li)
+                new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li - this.#escText.length)
               );
               this.#escText = "";
               this.#esc = 0;
@@ -2097,7 +2093,7 @@ namespace ini {
               this.#text = "";
             }
             this.#manufacture(
-              new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li)
+              new Token(this.#escText, ESCAPED, this.#ln, this.#ln, this.#li - this.#escText.length)
             );
             this.#escText = "";
             this.#esc = 0;
@@ -2369,6 +2365,10 @@ namespace ini {
           }
         } else {
           this.#text += token;
+        }
+        if (token === this.#eol) {
+          this.#ln++;
+          this.#li = 0;
         }
       }
     }
