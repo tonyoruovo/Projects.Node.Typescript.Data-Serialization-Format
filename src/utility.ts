@@ -1387,17 +1387,17 @@ namespace utility {
    * @throws {EvalError} if n is a `number` type and `index > 52` as the value {@link Number.MIN_SAFE_INTEGER `Number.MIN_SAFE_INTEGER`} has only 53 bits.
    * @throws {TypeError} if n is not a `number` or `bigint` type.
    */
-  export function nth(n: number | bigint, index: number): boolean {
+  export function nth(n: number | bigint, index: number): number {
     if (typeof n === "number") {
       if (index > 52)
         throw EvalError(
           `The index: ${index} is out of bounds for ${n}, the max is 31 for number types. Use bigint types for bigger indices`
         );
-      return nth(BigInt(Math.floor(n)), index);
+      n >>>= 0;
+      return ((n & (0x1 << index)) >>> index) & 0x1;
     } else if (typeof n === "bigint") {
       if(n < 0n) n *= -1n;
-      const mask = 1n << toBigInt(index);
-      return (n & mask) !== 0n;
+      return Number((n & (1n << toBigInt(index))) >> BigInt(index));
     }
     throw TypeError("Input type not supported");
   }
@@ -1425,7 +1425,7 @@ namespace utility {
     if (n < 0) throw new EvalError("n was negative");
     const l = length(i);
     n = Math.floor(n);
-    if (l < n) throw new EvalError("bit length is lesser than is required");
+    // if (l < n) throw new EvalError("bit length is lesser than is required");
     let mask = on(n) << toBigInt(l - n);
     return (mask | i) ^ mask;
   }
@@ -1450,7 +1450,13 @@ namespace utility {
    */
   export function length(n: bigint | number): number {
     if (typeof n === "number") {
-      return length(BigInt(Math.floor(n)))
+      n >>>= 0;
+      let l = 0;
+      do{
+        n >>>= 1;
+        ++l;
+      } while(n > 0);
+      return l;
     }
     if (n < 0n) n *= -1n;
       let l = 0;
