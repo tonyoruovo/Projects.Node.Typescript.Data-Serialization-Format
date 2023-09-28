@@ -1,3 +1,4 @@
 {
-    "workbench.list.typeNavigationMode": "automatic"
+    "workbench.list.typeNavigationMode": "automatic",
+    "typescript.tsdk": "node_modules\\typescript\\lib"
 }
