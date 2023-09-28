@@ -206,7 +206,7 @@ namespace expression {
    */
   export interface GExpression<F extends Format> extends Expression {
     /**
-     * a generic override of the {@link Expression.format} method. Formats this object to the given format and uses
+     * a generic override of the {@linkcode Expression.format} method. Formats this object to the given format and uses
      * the provided parameters as a guide for the formatter
      * @param {F} f a generic format object
      * @param {P} params the parameters injected into this
