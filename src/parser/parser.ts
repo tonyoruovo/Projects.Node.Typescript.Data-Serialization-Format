@@ -566,7 +566,7 @@ namespace parser {
      * @summary Gets and returns the list of tokens that have already been processed.
      * @description
      * Return the token buffer which contains tokens processed from `process` calls
-     * Each time `processed` is called, tokens are created and these tokens are pushed into the token buffer awaiting a parser to call the `next`method of this
+     * Each time `processed` is called, tokens are created and these tokens are pushed into the token buffer awaiting a parser to call the `next` method of this
      * lexer and consume them. This token buffer then returned as an array each time this method is called. Please note that an empty buffer does not mean processing
      * has completed or that processing is yet to begin.
      * @returns {T[]} an array of already processed `Token` objects or an empty array if ther is no token in the token buffer
@@ -878,7 +878,7 @@ namespace parser {
     }
 
     /**
-     * Removes a token from the preocessing queue, discards it and returns the next token on the
+     * Removes a token from the processing queue, discards it and returns the next token on the
      * waiting stack
      * @param l the token generator
      * @param s a syntax for the token generator
@@ -968,10 +968,11 @@ namespace parser {
    * const res = await fetch(url);
    * await res.body.pipeThrough(webStream).pipeTo(Duplex.toWeb(Duplex.from(process.stdout)));
    * ```
-   * The outputs of this stream are expected to be {@link exp.Expression expression} objects \
+   * The outputs of this stream are expected to be {@link exp.Expression expression} objects. \
    * \
    * For suituations where a user may need to bypass usage of a lexer and parser
    * to work with data, this class should be favoured over {@link Converter}
+   * 
    * @template S the type of {@link Syntax} object to be used
    * @template P the type of {@link AbstractConverter.params} object to be used
    */
