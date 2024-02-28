@@ -5,7 +5,7 @@
   "description": "A package for parsing, transforming and formatting serialized data",
   "main": "index.js",
   "scripts": {
-    "test": "tsc && node ./.bin/parser/csv.test"
+    "test": "tsc && node ./.bin/tests/toml.test"
   },
   "repository": {
     "type": "git",
