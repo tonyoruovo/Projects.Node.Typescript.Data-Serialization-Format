@@ -798,7 +798,7 @@ namespace utility {
     }
     [Symbol
       .unscopables](): { copyWithin: boolean; entries: boolean; fill: boolean; find: boolean; findIndex: boolean; keys: boolean; values: boolean; } {
-        return this.h[Symbol.unscopables]();
+        return this.h[Symbol.unscopables] as { copyWithin: boolean; entries: boolean; fill: boolean; find: boolean; findIndex: boolean; keys: boolean; values: boolean; };
     }
   }
   /**Hoffman encode */
