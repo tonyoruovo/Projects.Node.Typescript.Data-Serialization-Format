@@ -1,5 +1,5 @@
 import { Decimal } from "decimal.js";
-import { EOL, type } from "node:os";
+import { EOL } from "node:os";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
