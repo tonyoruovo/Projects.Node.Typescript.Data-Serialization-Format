@@ -2251,7 +2251,7 @@ namespace csv {
   }
   /**
    * @summary The {@linkcode Expression} output written to a file system.
-   * @description Writes the parsed `.ini` data to a file system whenevr {@linkcode append} is called.
+   * @description Writes the parsed `.csv` data to a file system whenevr {@linkcode append} is called.
    */
   export class FileFormat implements Format<fs.ReadStream> {
     /**
