@@ -6,14 +6,12 @@ import mem from "./mem.js";
  * A generic parser/converter/serializer for comma/decimal/dot/tab separated values. 
  */
 namespace dsv {
-    const token = mem.token;
-    const parser = mem.parser;
-    const expression = mem.expression;
-    const Type = token.GType;
+    const Type = mem.token.GType;
     export const SEPARATOR = Type("1", 2);
     export const EOL = Type("2", 1);
     export const FIELD = Type("3", 2);
     export const EOF = Type("-1", 2);
+    export type CellIndex = {row: number; col: number};
     export type Row = mem.expression.Expression & {
         (): readonly string[];//primitive
         (c: CellIndex): readonly Cell[];
@@ -44,7 +42,6 @@ namespace dsv {
     export const flip = Symbol("flip");
     export const swap = Symbol("swap");
     export const html = Symbol("html");
-    export type CellIndex = {row: number; col: number};
     export type Table = mem.expression.GExpression<Serializer> & {//table headers are at row 0
         (): readonly string[][];//primitive
         (c: {}): readonly Row[];//table
