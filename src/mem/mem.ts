@@ -506,8 +506,8 @@ namespace mem {
         }
         export type PrattParser<E extends expression.Expression, S extends GSyntax<token.Type, GCommand<token.GToken<T>, E, S, GLexer<token.GToken<T>, S>, PrattParser<E, S, T>>>, T = string> = GParser<E, S, GLexer<token.GToken<T>, S>> & {
             (beginingPrecedence: number, lexer: GLexer<token.GToken<T>, S>, syntax: S): E;
-            consume(expected: token.GType<any>, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
-            match(expected: token.GType<any>, lexer: GLexer<token.GToken<T>, S>, syntax: S): boolean;
+            consume(expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
+            match(expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): boolean;
             readAndPop(lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
             readAndPeek(distance: number, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
         };
@@ -535,12 +535,12 @@ namespace mem {
                 if (util.isValid(cmd)) return readAndPeek(0, lexer, syntax).type!.precedence;
                 return 0;
             }
-            const match = (expected: token.GType<any>, lexer: GLexer<token.GToken<T>, S>, syntax: S): boolean => {
+            const match = (expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): boolean => {
                 const t = readAndPeek(0, lexer, syntax);
                 if (!t.type!.equals(expected)) return false;
                 return true;
             }
-            const consume = (expected: token.GType<any>, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T> => {
+            const consume = (expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T> => {
                 const t = readAndPeek(0, lexer, syntax);
                 if (!t.type!.equals(expected)) throw SyntaxError(t.lineStart, t.startPos, ParseError(`Expected: ${JSON.stringify(expected)} but got ${t.type!.id} as ${t.value}.\n at line: ${t.lineStart}, position: ${t.startPos}`));
                 return readAndPop(lexer, syntax);
@@ -567,9 +567,11 @@ namespace mem {
                 return left as E;
             }
             const parse = (lexer: GLexer<token.GToken<T>, S>, syntax: S): E => parseOnPrecedence(0, lexer, syntax);
-            const pratt = (x: number | GLexer<token.GToken<T>, S>, y: GLexer<token.GToken<T>, S> | S, z?: S): E => {
-                if (typeof x === "number" && arguments.length === 3) return parseOnPrecedence(x, y as GLexer<token.GToken<T>, S>, z as S);
-                return parse(x as GLexer<token.GToken<T>, S>, y as S);
+            const pratt: (((x: number, y: GLexer<token.GToken<T>, S>, z: S) => E) |
+                        ((x: GLexer<token.GToken<T>, S>, y: S) => E))
+            = (x, y, z): E => {
+                if (typeof x === "number") return parseOnPrecedence(x, y as GLexer<token.GToken<T>, S>, z as S);
+                return parse(x as GLexer<token.GToken<T>, S>, y as any as S);
             };
             (pratt as any).prototype = Object.prototype;
             (pratt as any).prototype.consume = consume;
