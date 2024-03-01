@@ -619,7 +619,7 @@ namespace mem {
             (e: Expression): any;//decompose to primitive value such as boolean, null, undefined, object, number, string or array
         }
         export type ExpressionConstructor = {
-            translate(e: Expression): Expression;//calls e() to retrieve the primitive value of e and then parses that primitive value into an expression it can understand
+            translate(e: Expression): Expression;//static function, calls e() to retrieve the primitive value of e and then parses that primitive value into an expression it can understand
         }
         export type GExpression<F extends Format> = Expression & {
             (format: F, syntax: parser.Syntax): void
