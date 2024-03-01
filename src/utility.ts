@@ -43,6 +43,9 @@ namespace utility {
    * in comparing values.
    */
   export type Compare = -1 | 0 | 1;
+  export type Falsy = 0 | false | "" | null | undefined;
+  export type Truthy<T> = T extends Falsy ? never : T;
+  export type NumericString = `${number}`;
   /**
    * A functor that may be used as a replacement for {@link Comparable `Comparable`} when extrinsic comparison is desired as one must implement the `Comparable` interface to be able to do comparisons with it.
    * @template T the type of the arguments for this functor
