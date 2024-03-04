@@ -811,7 +811,7 @@ namespace csv {
      */
     isWhitespace(text: string): boolean;
     /**
-     * Formats the given text which is considered to be the field (or cell) value of a given row and column.
+     * Transform the given text which is considered to be the field (or cell) value of a given row and column.
      * This used by formatters when converting to json, and aims to delegate 'cell interpretation' to the user.
      * @param {string} field the value of the field that will be formatted
      * @returns {json.Value} returns a json {@link json.Value data type}
