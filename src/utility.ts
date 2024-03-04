@@ -43,7 +43,7 @@ namespace utility {
    * in comparing values.
    */
   export type Compare = -1 | 0 | 1;
-  export type Falsy = 0 | false | "" | null | undefined;
+  export type Falsy = 0 | false | "" | null | undefined;//Handle Number.NaN manually
   export type Truthy<T> = T extends Falsy ? never : T;
   export type NumericString = `${number}`;
   /**
