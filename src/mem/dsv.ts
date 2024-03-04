@@ -243,16 +243,42 @@ namespace dsv {
                 ge() {
                 },
             } as Tokenizer;
-            mill["\\"] = {
+            //escaped characters
+            s.field.escape.chars.forEach(esc => {
+                mill[esc] = {
+                    value: null,
+                    ad(x) {},
+                    ca() {},
+                    ge() {},
+                } as Tokenizer;
+            });
+            //escaped unicode/encoding
+            s.field.escape.encodings.forEach(esc => {
+                mill[esc.operator] = {
+                    value: null,
+                    ad(x) {},
+                    ca() {},
+                    ge() {},
+                } as Tokenizer;
+            });
+            mill.ws = {//whitespace
+                value: null,
+                ad: (x) => {},
+                ge: () => {},
+                ca: () => {}
             } as Tokenizer;
-            mill[''] = {
+            mill[s.delimiter[0]] = {//separator
+            } as Tokenizer;
+            mill[s.field.quotes[0][0]] = {//start quote
+            } as Tokenizer;
+            mill[s.field.quotes[1][0]] = {//end quote
             } as Tokenizer;
             mill.ad = x => {
                 if(mill.ls !== null) mill[mill.ls].ad(x);
                 else if (util.isValid(mill[x!])) mill[x!].ad(x);
-                else if(util.isWhitespace(x!)) manufacture(Token(x!, WHITESPACE, line(), line(), position()));
+                else if(util.isWhitespace(x!)) mill.ws.ad(x!);//for whitespaces
                 else mill.tx.ad(x);
-            }
+            };
 
             return mill;
         }
