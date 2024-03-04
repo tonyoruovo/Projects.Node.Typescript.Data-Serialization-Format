@@ -26,13 +26,13 @@ namespace mem {
             this!.prototype = Error.prototype;
             (this! as any).prototype.message = msg;
             (this! as any).prototype.name = "DataError";
-            (this! as any).prototype.cause = cause;
+            (this! as any).prototype.cause = {cause};
             (this! as any).prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
         } else {
             return {
                 message: msg,
                 name: "DataError",
-                cause: cause,
+                cause: {cause},
                 prototype: DataError.prototype,
                 stack: util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : ""
             } as DataError;
@@ -224,13 +224,13 @@ namespace mem {
         export const ParseError: ParseErrorConstructor = function <C extends unknown = any>(this: ParseError, line?: number, pos?: number, cause?: C) {
             cause ??= line as any;
             if (new.target || !(this instanceof ParseError)) {
-                this.message = typeof line === "number" ? "Parse error at: " + line + ":" + pos : "";
-                this.name = "ParseError";
                 this.prototype = DataError.prototype;
-                this.cause = cause ?? line;
-                this.line = typeof line === "number" ? line : undefined;
-                this.pos = pos;
-                this.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+                this.prototype.message = typeof line === "number" ? "Parse error at: " + line + ":" + pos : "";
+                this.prototype.name = "ParseError";
+                this.prototype.cause = {cause: cause ?? line};
+                this.prototype.line = typeof line === "number" ? line : undefined;
+                this.prototype.pos = pos;
+                this.prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
                 // if(typeof line !== "number" && (!util.isValid(pos)) && (!util.isValid(cause))) {
@@ -240,7 +240,7 @@ namespace mem {
                     message: typeof line === "number" ? "Parse error at: " + line + ":" + pos : "",
                     name: "ParseError",
                     prototype: ParseError.prototype,
-                    cause: cause ?? line,
+                    cause: {cause: cause ?? line},
                     line: typeof line === "number" ? line : undefined,
                     pos,
                     stack: util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : ""
@@ -258,20 +258,20 @@ namespace mem {
         };
         export const SyntaxError: SyntaxErrorConstructor = function <C extends unknown = any>(this: SyntaxError, line: number, pos: number, cause?: C) {
             if (new.target || !(this instanceof SyntaxError)) {
-                this.message = "Syntax error at: " + line + ":" + pos;
-                this.name = "SyntaxError";
                 this.prototype = ParseError.prototype;
-                this.cause = cause;
-                this.line = line;
-                this.pos = pos;
-                this.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+                this.prototype.message = "Syntax error at: " + line + ":" + pos;
+                this.prototype.name = "SyntaxError";
+                this.prototype.cause = {cause};
+                this.prototype.line = line;
+                this.prototype.pos = pos;
+                this.prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
                 return {
                     message: "Syntax error at: " + line + ":" + pos,
                     name: "SyntaxError",
                     prototype: SyntaxError.prototype,
-                    cause,
+                    cause: {cause},
                     line,
                     pos,
                     stack: util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : ""
@@ -307,6 +307,43 @@ namespace mem {
              * @alpha
              */
             POSTFIX = 2
+        };
+        export type Unicode = "utf-1" | "utf1" | "utf-7" | "utf7" | "utf-8" | "utf8" | "utf-16" | "utf16" | "utf16le" | "utf-16le" | "utf-32" | "utf32" | "utf-32le" | "utf32le" | "utf-64" | "utf64" | "utf-128" | "utf128" | "utf-ebcdic" | "utfebcdic";
+        export type Encoding = Unicode | "scsu" | "bocu-1" | "bocu1" | "gb18030" | BufferEncoding;
+        /**
+         * Represents data info of a given source or syntax
+         */
+        export type Metadata = {
+            /**
+             * The expected encoding in the document to be parsed
+             * @type {Encoding}
+             * @readonly
+             */
+            readonly encoding: Encoding;
+            /**
+             * The file extension of the data, if it has one. This should not have any trailing dot(s)
+             * @type {string}
+             * @readonly
+             */
+            readonly fileExt: string;
+            /**
+             * The MIME type of the data parsed with this syntax.
+             * @type {string}
+             * @readonly
+             */
+            readonly mediaType: string;
+            /**
+             * Checks if the data parsed by this syntax is part of a web standard. Return `true` if it is and `false` otherwise.
+             * @type {string}
+             * @readonly
+             */
+            readonly isStandard: boolean;
+            /**
+             * A url to a resource such as an rfc webpage or a schema
+             * @type {string}
+             * @readonly
+             */
+            readonly standard: string;
         };
         export type Command = {
             (alreadyParsed: expression.Expression, yetToBeParsed: token.Token, parser: Parser, lexer: Lexer, syntax: Syntax): expression.Expression;
@@ -404,9 +441,10 @@ namespace mem {
              */
             tx: Tokenizer,
             /**
-             * A user-defined tokenizer.
+             * A user-defined tokenizer. The `any` type annotation allows for other properties to be declared as non-Tokenizers for
+             * the TypeScript 5.2.2 compiler.
              */
-            [name: symbol]: Tokenizer,
+            [name: string]: Tokenizer | any,
             /**
              * Calls (if possible) `ad()` for the property whose name is allocated to the `ls` property,
              * or else calls `ad()` for the property (if available) with the name `item`, or else calls `ad()` for
@@ -423,7 +461,7 @@ namespace mem {
             ca: () => void;
         };
         export type Lexer = {
-            readonly src?: any;
+            src?: any;
             readonly mill: TokenFactory;
             position(): number;
             line(): number;
@@ -492,11 +530,26 @@ namespace mem {
         }
         export type Syntax = {
             (direction: Direction, type: token.Type): Command | undefined;
-            params(): any;
+            params(): {
+                /**
+                 * A {@link util.Messenger logger} used by parsers to log info, errors and warnings during parsing. Note that the `isSealed` property will return `false` for this object when the parsing is yet to be completed and `true` when it is. Hence no logging may take place after the parsing is done.
+                 * @type {util.Messenger}
+                 * @readonly
+                 */
+                readonly logger?: util.Messenger;
+            };
+            metadata?: Metadata;
         };
         export type GSyntax<T extends token.Type, C extends Command> = Syntax & {
             (direction: Direction, type: T): C | undefined;
-            params<P>(): P;
+            params<P extends {
+                /**
+                 * A {@link util.Messenger logger} used by parsers to log info, errors and warnings during parsing. Note that the `isSealed` property will return `false` for this object when the parsing is yet to be completed and `true` when it is. Hence no logging may take place after the parsing is done.
+                 * @type {util.Messenger}
+                 * @readonly
+                 */
+                readonly logger?: util.Messenger;
+            }>(): P;
         };
         export type Parser = {
             (lexer: Lexer, syntax: Syntax): expression.Expression;
@@ -567,12 +620,14 @@ namespace mem {
                 return left as E;
             }
             const parse = (lexer: GLexer<token.GToken<T>, S>, syntax: S): E => parseOnPrecedence(0, lexer, syntax);
-            const pratt: (((x: number, y: GLexer<token.GToken<T>, S>, z: S) => E) |
-                        ((x: GLexer<token.GToken<T>, S>, y: S) => E))
-            = (x, y, z): E => {
+            type Parse = {
+                (x: number, y: GLexer<token.GToken<T>, S>, z: S): E;
+                (x: GLexer<token.GToken<T>, S>, y: S): E;
+            }
+            const pratt = ((x, y, z): E => {
                 if (typeof x === "number") return parseOnPrecedence(x, y as GLexer<token.GToken<T>, S>, z as S);
                 return parse(x as GLexer<token.GToken<T>, S>, y as any as S);
-            };
+            }) as Parse;
             (pratt as any).prototype = Object.prototype;
             (pratt as any).prototype.consume = consume;
             (pratt as any).prototype.match = match;
@@ -596,7 +651,7 @@ namespace mem {
                 (this! as any).prototype = DataError.prototype;
                 (this! as any).prototype.message = msg ?? "";
                 (this! as any).prototype.name = "ExpressionError";
-                (this! as any).prototype.cause = cause;
+                (this! as any).prototype.cause = {cause};
                 (this! as any).prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
