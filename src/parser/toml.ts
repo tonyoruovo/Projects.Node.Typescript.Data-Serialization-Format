@@ -1144,7 +1144,7 @@ namespace toml {
               }
             } else if (/[A-Fa-f0-9]/.test(token)) {//a hexadecimal escape. Probably for a unicode escape
               this.escText += token;
-              if (this.escText.length === 9) {//It is complete utf32 escape in the form U+XXXXXXXX
+              if (this.escText.length === 9) {//It is complete utf32 escape in the form U+XXXXXXXX (including 'u')
                 if (utility.isValid(this.mill.ls)) {//if we have values waiting in the mill to be processed into tokens
                   this.mill.ca();
                 }
