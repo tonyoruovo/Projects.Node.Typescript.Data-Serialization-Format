@@ -667,6 +667,10 @@ namespace mem {
         export type Expression = util.Predicatable & util.Hashable & {
             (format: Format, syntax?: parser.Syntax): void;
             /**
+             * The value in-memory. Used by formatters and serializers.
+             */
+            (): any;
+            /**
              * for debugging
              * @throws {ExpressionError} if there is any issue encountered
              */
@@ -678,7 +682,7 @@ namespace mem {
         }
         export type GExpression<F extends Format> = Expression & {
             (format: F, syntax: parser.Syntax): void
-            <R>(expression: GExpression<F>): R;
+            <R>(e: Expression): R;
         }
         export type FormatError<C extends unknown = any> = DataError<C>;
         export type FormatErrorConstructor = DataErrorConstructor & {
