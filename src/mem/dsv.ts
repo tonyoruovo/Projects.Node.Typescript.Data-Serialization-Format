@@ -21,6 +21,8 @@ namespace dsv {
     export const ESCAPED = Type("4", 2);
     export const TEXT = Type("5", 2);
     export const WHITESPACE = Type("6", 2);
+    export const L_QUOTE = Type("6", 2);
+    export const R_QUOTE = Type("7", 2);
     // export const FIELD = Type("3", 2);
     export const EOF = Type("-1", 2);
     export interface Syntax extends mem.parser.GSyntax<mem.token.GType<string>, Command> {
@@ -51,7 +53,7 @@ namespace dsv {
              */
             readonly spaces: readonly [boolean, boolean];//allow trailing and/or leading
             readonly escape: {
-                readonly chars: readonly string[];
+                // readonly chars: readonly string[];
                 readonly encodings: readonly {//may be unicode, ascii etc
                     /**
                      * An empty value is a syntax error.
@@ -113,6 +115,12 @@ namespace dsv {
                      * - using css-based escape this value in `'\0042'` will be `16`
                      * - using js-based (ES6) escape this value in `\x2a` will be `16`
                      * - using js-based (ES6) escape this value in `\x{2a}` will be `16`
+                     * \
+                     * \
+                     * Note that if the radix is `0` (or less than) then the value will be assumed to be a "character escape" such as:
+                     * - `'\n'` (line separator) for C-style escapes
+                     * - `'&amp;'` (ampersand) for XML-style escapes
+                     * - `'""'` (double quotes) for CSV-style escapes
                      */
                     readonly radix: number;
                 }[];
@@ -222,65 +230,158 @@ namespace dsv {
         let esc = 0;
         let escText = "";
         const constructMill = (s: Syntax) => {
-            const mill = {ls: null} as TokenFactory;
-            mill[s.delimiter[0]] = {
+            if(nx.mill) return nx.mill;
+            const m = {ls: null} as TokenFactory;
+            m[s.eol[0]] = {//line separator
                 value: null,
-                ad(x) {
-                    if(mill.ls !== null && mill[mill.ls].value !== mill[s.delimiter[0]].value)
-                        mill[mill.ls].ca();
-                    const k = (mill[s.delimiter[0]].value??"") + x!;
-                    if((k === s.delimiter) || (k.length < s.delimiter.length && s.delimiter.startsWith(k))) {
-                        mill[s.delimiter[0]].value = k;
-                        if(k === s.delimiter) mill[s.delimiter[0]].ge();
-                        else mill.ls = s.delimiter[0];
-                    } else {
-                        mill[s.delimiter[0]].ca();
-                        if(util.isValid(mill[x!])) mill[x!].ad(x!);
+                ad: (x) => {
+                    if(m.ls !== null && m.ls !== s.eol[0]) m[m.ls].ad("");
+                    m.ls = s.eol[0];
+                    m[s.eol[0]].value = (m[s.eol[0]].value ?? "") + x!;
+                    if(m[s.eol[0]].value === s.eol) m[s.eol[0]].ge();
+                    else if(m[s.eol[0]].value.length < s.eol.length && m[s.eol[0]].value === s.eol.substring(0, m[s.eol[0]].value.length)) return;
+                    else {
+                        // m[s.eol[0]].value = m[s.eol[0]].value;
+                        m[s.eol[0]].ca();
                     }
                 },
-                ca() {
+                ca: () => {
+                    // m.tx.value = m[s.eol[0]].value;
+                    // m.ls = "tx";
+                    m[s.eol[0]].value = null;
+                    m.ls = null;
+                    m.ad(m[s.eol[0]].value);
                 },
-                ge() {
+                ge: () => {
+                    manufacture(Token(m[s.eol[0]].value as string, SEPARATOR, line(), line(), position()));
+                    m[s.eol[0]].value = null;
+                    m.ls = null;
                 },
             } as Tokenizer;
             //escaped characters
-            s.field.escape.chars.forEach(esc => {
-                mill[esc] = {
-                    value: null,
-                    ad(x) {},
-                    ca() {},
-                    ge() {},
-                } as Tokenizer;
-            });
-            //escaped unicode/encoding
+            // s.field.escape.chars.forEach(esc => {
+            //     m[esc[0]] = {
+            //         value: null,
+            //         ad(x) {},
+            //         ca() {},
+            //         ge() {},
+            //     } as Tokenizer;
+            // });
+            //escaped characters and escaped unicode/encoding
             s.field.escape.encodings.forEach(esc => {
-                mill[esc.operator] = {
+                m[esc.operator] = {
                     value: null,
                     ad(x) {},
                     ca() {},
                     ge() {},
                 } as Tokenizer;
             });
-            mill.ws = {//whitespace
+            m.ws = {//whitespace
                 value: null,
-                ad: (x) => {},
-                ge: () => {},
-                ca: () => {}
+                ad: (x) => {
+                    if(m.ls !== null && m.ls !== "ws") m[m.ls].ad("");
+                    m.ls = "ws";
+                    if(util.isWhitespace(x!)) m["ws"].value = (m["ws"].value ?? "") + x!;
+                    else {
+                        m.ws.ge();
+                        m.ws.ca();
+                    }
+                },
+                ca: () => {
+                    // m.tx.value = m["ws"].value;
+                    // m.ls = "tx";
+                    m["ws"].value = null;
+                    m.ls = null;
+                    m.ad(m.ws.value);
+                },
+                ge: () => {
+                    manufacture(Token(m["ws"].value as string, WHITESPACE, line(), line(), position()));
+                    m["ws"].value = null;
+                    m.ls = null;
+                },
             } as Tokenizer;
-            mill[s.delimiter[0]] = {//separator
+            m[s.delimiter[0]] = {//field separator
+                value: null,
+                ad: (x) => {
+                    if(m.ls !== null && m.ls !== s.delimiter[0]) m[m.ls].ad("");
+                    m.ls = s.delimiter[0];
+                    m[s.delimiter[0]].value = (m[s.delimiter[0]].value ?? "") + x!;
+                    if(m[s.delimiter[0]].value === s.delimiter) m[s.delimiter[0]].ge();
+                    else if(m[s.delimiter[0]].value.length < s.delimiter.length && m[s.delimiter[0]].value === s.delimiter.substring(0, m[s.delimiter[0]].value.length)) return;
+                    else {
+                        m[s.delimiter[0]].ca();
+                    }
+                },
+                ca: () => {
+                    // m.tx.value = m[s.delimiter[0]].value;
+                    // m.ls = "tx";
+                    m[s.delimiter[0]].value = null;
+                    m.ls = null;
+                    m.ad(m[s.delimiter[0]].value);
+                },
+                ge: () => {
+                    manufacture(Token(m[s.delimiter[0]].value as string, SEPARATOR, line(), line(), position()));
+                    m[s.delimiter[0]].value = null;
+                    m.ls = null;
+                },
             } as Tokenizer;
-            mill[s.field.quotes[0][0]] = {//start quote
+            m[s.field.quotes[0][0]] = {//start quote
+                value: null,
+                ad: (x) => {
+                    if(m.ls !== null && m.ls !== s.field.quotes[0][0]) m[m.ls].ad("");
+                    m.ls = s.field.quotes[0][0];
+                    m[s.field.quotes[0][0]].value = (m[s.field.quotes[0][0]].value ?? "") + x!;
+                    if(m[s.field.quotes[0][0]].value === s.field.quotes[0]) m[s.field.quotes[0][0]].ge();
+                    else if(m[s.field.quotes[0][0]].value.length < s.field.quotes[0].length && m[s.field.quotes[0][0]].value === s.field.quotes[0].substring(0, m[s.field.quotes[0][0]].value.length)) return;
+                    else m[s.field.quotes[0][0]].ca();
+                },
+                ca: () => {
+                    // m.tx.value = m[s.field.quotes[0][0]].value;
+                    // m.ls = "tx";
+                    m[s.field.quotes[0][0]].value = null;
+                    m.ls = null;
+                    m.ad(m[s.field.quotes[0][0]].value);
+                },
+                ge: () => {
+                    manufacture(Token(m[s.field.quotes[0][0]].value as string, L_QUOTE, line(), line(), position()));
+                    m[s.field.quotes[0][0]].value = null;
+                    m.ls = null;
+                },
             } as Tokenizer;
-            mill[s.field.quotes[1][0]] = {//end quote
+            m[s.field.quotes[1][0]] = {//end quote
+                value: null,
+                ad: (x) => {
+                    if(m.ls !== null && m.ls !== s.field.quotes[1][0]) m[m.ls].ad("");
+                    m.ls = s.field.quotes[1][0];
+                    m[s.field.quotes[1][0]].value = (m[s.field.quotes[1][0]].value ?? "") + x!;
+                    if(m[s.field.quotes[1][0]].value === s.field.quotes[1]) m[s.field.quotes[1][0]].ge();
+                    else if(m[s.field.quotes[1][0]].value.length < s.field.quotes[1].length && m[s.field.quotes[1][0]].value === s.field.quotes[1].substring(0, m[s.field.quotes[1][0]].value.length)) return;
+                    else m[s.field.quotes[1][0]].ca();
+                },
+                ca: () => {
+                    // m.tx.value = m[s.field.quotes[1][0]].value;
+                    // m.ls = "tx";
+                    m[s.field.quotes[1][0]].value = null;
+                    m.ls = null;
+                    m.ad(m[s.field.quotes[1][0]].value);
+                },
+                ge: () => {
+                    manufacture(Token(m[s.field.quotes[1][0]].value as string, R_QUOTE, line(), line(), position()));
+                    m[s.field.quotes[1][0]].value = null;
+                    m.ls = null;
+                },
             } as Tokenizer;
-            mill.ad = x => {
-                if(mill.ls !== null) mill[mill.ls].ad(x);
-                else if (util.isValid(mill[x!])) mill[x!].ad(x);
-                else if(util.isWhitespace(x!)) mill.ws.ad(x!);//for whitespaces
-                else mill.tx.ad(x);
+            m.ad = x => {
+                if(m.ls !== null) m[m.ls].ad(x);
+                else if (util.isValid(m[x!])) m[x!].ad(x);
+                else if(util.isWhitespace(x!)) m.ws.ad(x!);//for whitespaces
+                else m.tx.ad(x);
+            };
+            m.ca = () => {
+                // if(m.ls !== null && m.ls)
             };
 
-            return mill;
+            return m;
         }
         const manufacture = (t: Token) => queue.push(t);
         const hasTokens = () => queue.length > 0;
@@ -358,6 +459,13 @@ namespace dsv {
     export type Parser = mem.parser.PrattParser<Expression, Syntax, string>;
     export type CellIndex = {row: number; col: number};
     export type Expression = mem.expression.GExpression<Serializer>;
+    export type Text = Expression & {
+        (): string;
+    };
+    export type Plain = Text & {};
+    export type Raw = Text & {};
+    export type StartField = Text & {};
+    export type EndField = Text & {};
     export type Cell = Expression & {
         /**
          * @param {util.Truthy} parse a truthy value specifying whether the to be value retrieved should be parsed before this retrieval
