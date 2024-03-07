@@ -77,6 +77,20 @@ namespace dsv {
                      */
                     readonly prefix: string;
                     /**
+                     * A list of escape character sequence(s) associated with this escape.
+                     * ### C-style:
+                     * - `'n'`: line feed
+                     * - `'r'`: carriage return
+                     * - `'"'`: double quote
+                     * - `'''`: single quote etc.
+                     * ### XML-style
+                     * - `'apos'` apostrophe
+                     * - `'gt'` greater than (right angle bracket)
+                     * - `'lt'` less than (left angle bracket)
+                     * - `'amp'` ampersand etc.
+                     */
+                    readonly infix: string[];
+                    /**
                      * This is case sensitive
                      * - using C-based escape this value in `'\u002a'` will be an empty string
                      * - using xml-based escape this value in `'&#x002a;'` will be `';'`
@@ -115,12 +129,6 @@ namespace dsv {
                      * - using css-based escape this value in `'\0042'` will be `16`
                      * - using js-based (ES6) escape this value in `\x2a` will be `16`
                      * - using js-based (ES6) escape this value in `\x{2a}` will be `16`
-                     * \
-                     * \
-                     * Note that if the radix is `0` (or less than) then the value will be assumed to be a "character escape" such as:
-                     * - `'\n'` (line separator) for C-style escapes
-                     * - `'&amp;'` (ampersand) for XML-style escapes
-                     * - `'""'` (double quotes) for CSV-style escapes
                      */
                     readonly radix: number;
                 }[];
@@ -258,22 +266,52 @@ namespace dsv {
                     m.ls = null;
                 },
             } as Tokenizer;
-            //escaped characters
-            // s.field.escape.chars.forEach(esc => {
-            //     m[esc[0]] = {
-            //         value: null,
-            //         ad(x) {},
-            //         ca() {},
-            //         ge() {},
-            //     } as Tokenizer;
-            // });
-            //escaped characters and escaped unicode/encoding
+            //escaped sequences and escaped unicode/encoding
             s.field.escape.encodings.forEach(esc => {
-                m[esc.operator] = {
+                m[esc.operator[0]] = {
                     value: null,
-                    ad(x) {},
-                    ca() {},
-                    ge() {},
+                    ad: (x) => {
+                        if(m.ls !== null && m.ls !== esc.operator[0]) m[m.ls].ad("");
+                        m.ls = esc.operator[0];
+                        m[esc.operator[0]].value = (m[esc.operator[0]].value ?? "") + x!;
+                        if(m[esc.operator[0]].value === s.delimiter) m[esc.operator[0]].ge();
+                        else if(m[esc.operator[0]].value.length < s.delimiter.length && m[esc.operator[0]].value === s.delimiter.substring(0, m[esc.operator[0]].value.length)) return;
+                        else m[esc.operator[0]].ca();
+                    },
+                    ca: () => {
+                        m[esc.operator[0]].value = null;
+                        m.ls = null;
+                        m.ad(m[esc.operator[0]].value);
+                    },
+                    ge: () => {
+                        manufacture(Token(m[esc.operator[0]].value as string, ESCAPE, line(), line(), position()));
+                        m[esc.operator[0]].value = null;
+                        m.ls = "px" + esc.prefix[0];
+                    },
+                } as Tokenizer;
+                m["px" + esc.prefix[0]] = {
+                    value: null,
+                    ad: (x) => {
+                        if(m.ls !== null && m.ls !== "px" + esc.prefix[0]) m[m.ls].ad("");
+                        m.ls = "px" + esc.prefix[0];
+                        m["px" + esc.prefix[0]].value = (m["px" + esc.prefix[0]].value ?? "") + x!;
+                        if(m["px" + esc.prefix[0]].value === esc.prefix || x === esc.suffix) m["px" + esc.prefix[0]].ge();
+                        else if(m["px" + esc.prefix[0]].value.length < esc.prefix.length
+                        && m["px" + esc.prefix[0]].value === esc.prefix.substring(0, m["px" + esc.prefix[0]].value.length)) return;
+                        else {
+                            m["px" + esc.prefix[0]].ca();
+                        }
+                    },
+                    ca: () => {
+                        m["px" + esc.prefix[0]].value = null;
+                        m.ls = null;
+                        m.ad(m["px" + esc.prefix[0]].value);
+                    },
+                    ge: () => {
+                        manufacture(Token(m["px" + esc.prefix[0]].value as string, ESCAPE, line(), line(), position()));
+                        m["px" + esc.prefix[0]].value = null;
+                        m.ls = "px" + esc.prefix[0];
+                    },
                 } as Tokenizer;
             });
             m.ws = {//whitespace
@@ -308,9 +346,7 @@ namespace dsv {
                     m[s.delimiter[0]].value = (m[s.delimiter[0]].value ?? "") + x!;
                     if(m[s.delimiter[0]].value === s.delimiter) m[s.delimiter[0]].ge();
                     else if(m[s.delimiter[0]].value.length < s.delimiter.length && m[s.delimiter[0]].value === s.delimiter.substring(0, m[s.delimiter[0]].value.length)) return;
-                    else {
-                        m[s.delimiter[0]].ca();
-                    }
+                    else m[s.delimiter[0]].ca();
                 },
                 ca: () => {
                     // m.tx.value = m[s.delimiter[0]].value;
