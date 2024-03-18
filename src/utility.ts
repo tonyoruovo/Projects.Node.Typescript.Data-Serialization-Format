@@ -45,7 +45,7 @@ namespace utility {
   export type Compare = -1 | 0 | 1;
   export type Falsy = 0 | false | "" | null | undefined;//Handle Number.NaN manually
   export type Truthy<T> = T extends Falsy ? never : T;
-  export type NumericString = `${number}`;
+  export type DecimalString = `${number}`;
   /**
    * A functor that may be used as a replacement for {@link Comparable `Comparable`} when extrinsic comparison is desired as one must implement the `Comparable` interface to be able to do comparisons with it.
    * @template T the type of the arguments for this functor
@@ -801,7 +801,7 @@ namespace utility {
     }
     [Symbol
       .unscopables](): { copyWithin: boolean; entries: boolean; fill: boolean; find: boolean; findIndex: boolean; keys: boolean; values: boolean; } {
-        return this.h[Symbol.unscopables] as { copyWithin: boolean; entries: boolean; fill: boolean; find: boolean; findIndex: boolean; keys: boolean; values: boolean; };
+        return this.h[Symbol.unscopables] as unknown as { copyWithin: boolean; entries: boolean; fill: boolean; find: boolean; findIndex: boolean; keys: boolean; values: boolean; };
     }
   }
   /**Hoffman encode */
@@ -1951,6 +1951,16 @@ namespace utility {
    */
   export function isInteger(n: number): boolean {
     return Math.floor(n) === Math.ceil(n) && Number.isFinite(n);
+  }
+  /**
+   * Checks if the first argument is a number in the given radix or (if it is a `number` type) whether it is not `NaN` or `Infinity`.
+   * Note that for string arguments, only integers are valid.
+   * @param {string | number} n the value to be checked
+   * @param {number} [r=10] the radix of the value to be checked. The default is `10`
+   * @returns {boolean} `true` if the first argument is a `number` or numeric `string` literal.
+   */
+  export function isNumber(n: string | number, r: number = 10): boolean {
+    return Number.isFinite(typeof n === "number" ? n : Number.parseInt(n, r));
   }
   /**
    * A short hand for {@link Decimal} for the purpose of

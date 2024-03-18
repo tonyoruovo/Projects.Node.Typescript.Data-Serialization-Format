@@ -22,12 +22,12 @@ namespace mem {
         <C extends unknown = any>(msg: string, cause?: C): DataError<C>;
     }
     export const DataError: DataErrorConstructor = function <C extends unknown = any>(this: DataError<C> | void, msg: string, cause?: C) {
-        if (new.target || !(this instanceof DataError)) {
-            this!.prototype = Error.prototype;
-            (this! as any).prototype.message = msg;
-            (this! as any).prototype.name = "DataError";
-            (this! as any).prototype.cause = {cause};
-            (this! as any).prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+        if (new.target) {
+            // this!.prototype = Error.prototype;
+            (this! as any).message = msg;
+            (this! as any).name = "DataError";
+            (this! as any).cause = {cause};
+            (this! as any).stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
         } else {
             return {
                 message: msg,
@@ -35,7 +35,7 @@ namespace mem {
                 cause: {cause},
                 prototype: DataError.prototype,
                 stack: util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : ""
-            } as DataError;
+            } as DataError<C>;
         }
         return this as DataError<C>;
     } as DataErrorConstructor;
@@ -56,13 +56,13 @@ namespace mem {
             (token: Token): TokenError;
         };
         export const TokenError: TokenErrorConstructor = function (this: TokenError | void, token: Token) {
-            if (new.target || !(this instanceof TokenError)) {
-                this!.prototype = DataError.prototype;
-                (this! as any).prototype.token = token;
-                (this! as any).prototype.name = "TokenError";
-                (this! as any).prototype.cause = undefined;
-                (this! as any).prototype.stack = undefined;
-                (this! as any).prototype.message = (token.type ?? { id: Number.NaN }).id + " is not a valid token" + util.eol + "at: " + token.lineStart + ":" + token.startPos;
+            if (new.target) {
+                // this!.prototype = DataError.prototype;
+                (this! as any).token = token;
+                (this! as any).name = "TokenError";
+                (this! as any).cause = undefined;
+                (this! as any).stack = undefined;
+                (this! as any).message = (token.type ?? { id: Number.NaN }).id + " is not a valid token" + util.eol + "at: " + token.lineStart + ":" + token.startPos;
             } else {
                 return {
                     token,
@@ -86,17 +86,17 @@ namespace mem {
             (id: string, precedence: number): GType<string>;
         }
         export const GType: TypeConstructor = function (this: GType<string> | void, id: string, precedence: number) {
-            if (new.target || !(this instanceof GType)) {
-                (this! as any).prototype = Object.prototype;
-                (this! as any).prototype.id = id;
-                (this! as any).prototype.precedence = precedence;
-                (this! as any).prototype.toString = () => JSON.stringify(this);
-                (this! as any).prototype.equals = (o?: object) => (o instanceof GType) ? this!.id === o.id && this!.precedence === o.precedence : false;
+            if (new.target) {
+                // (this! as any).prototype = Object.prototype;
+                (this! as any).id = id;
+                (this! as any).precedence = precedence;
+                (this! as any).toString = () => JSON.stringify(this);
+                (this! as any).equals = (o?: object) => (o instanceof GType) ? this!.id === o.id && this!.precedence === o.precedence : false;
             } else {
                 const doppleganger: any = { id, precedence };
-                doppleganger.prototype = GType.prototype;
-                (this! as any).prototype.toString = () => JSON.stringify(this);
-                (this! as any).prototype.equals = (o?: object) => (o instanceof GType) ? this!.id === o.id && this!.precedence === o.precedence : false;
+                // doppleganger.prototype = GType.prototype;
+                (doppleganger! as any).toString = () => JSON.stringify(doppleganger);
+                (doppleganger! as any).equals = (o?: object) => (o instanceof GType) ? doppleganger!.id === o.id && doppleganger!.precedence === o.precedence : false;
                 return Object.freeze(doppleganger as GType<string>);
             }
         } as TypeConstructor;
@@ -154,20 +154,20 @@ namespace mem {
             (value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number): GToken<string>
         }
         export const GToken: TokenConstructor = function (this: GToken<string> | void, value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number) {
-            if (new.target || !(this instanceof GToken)) {
-                (this! as any).prototype = Object.prototype;
-                (this! as any).prototype.value = value;
-                (this! as any).prototype.length = value.length;
-                (this! as any).prototype.type = type;
-                (this! as any).prototype.lineStart = lineStart;
-                (this! as any).prototype.lineEnd = lineEnd;
-                (this! as any).prototype.startPos = startPos;
-                (this! as any).prototype.equals = (o?: object) => (o instanceof GToken) ?
+            if (new.target) {
+                // (this! as any).prototype = Object.prototype;
+                (this! as any).value = value;
+                (this! as any).length = value.length;
+                (this! as any).type = type;
+                (this! as any).lineStart = lineStart;
+                (this! as any).lineEnd = lineEnd;
+                (this! as any).startPos = startPos;
+                (this! as any).equals = (o?: object) => (o instanceof GToken) ?
                     (this!.lineStart == o.lineStart && this!.lineEnd == o.lineEnd && this!.startPos === o.startPos
                         && this!.type!.equals(o.type) && this!.value === o.value) : false;
-                (this! as any).prototype.hashCode32 = () =>
+                (this! as any).hashCode32 = () =>
                     util.hashCode32(true, util.asHashable(this!.value), util.asHashable(this!.type!.id), util.asHashable(this!.type!.precedence), util.asHashable(this!.startPos), util.asHashable(this!.lineEnd), util.asHashable(this!.lineStart));
-                (this! as any).prototype.compareTo = (o?: Token) => {
+                (this! as any).compareTo = (o?: Token) => {
                     if (util.isValid(o)) {
                         let by = util.compare(this!.lineStart, o!.lineStart);
                         if (by !== 0) return by;
@@ -184,13 +184,13 @@ namespace mem {
 
             } else {
                 const doppleganger: any = { value, type, lineEnd, lineStart, startPos, length: value.length };
-                doppleganger.prototype = GToken.prototype;
-                doppleganger.prototype.equals = (o?: object) => (o instanceof GToken) ?
+                // doppleganger.prototype = GToken.prototype;
+                doppleganger.equals = (o?: object) => (o instanceof GToken) ?
                     (doppleganger.lineStart == o.lineStart && doppleganger.lineEnd == o.lineEnd && doppleganger.startPos === o.startPos
                         && doppleganger.type!.equals(o.type) && doppleganger.value === o.value) : false;
-                doppleganger.prototype.hashCode32 = () =>
+                doppleganger.hashCode32 = () =>
                     util.hashCode32(true, util.asHashable(doppleganger.value), util.asHashable(doppleganger.type!.id), util.asHashable(doppleganger.type!.precedence), util.asHashable(doppleganger.startPos), util.asHashable(doppleganger.lineEnd), util.asHashable(doppleganger.lineStart));
-                doppleganger.prototype.compareTo = (o?: Token) => {
+                doppleganger.compareTo = (o?: Token) => {
                     if (util.isValid(o)) {
                         let by = util.compare(doppleganger.lineStart, o!.lineStart);
                         if (by !== 0) return by;
@@ -223,14 +223,14 @@ namespace mem {
         };
         export const ParseError: ParseErrorConstructor = function <C extends unknown = any>(this: ParseError, line?: number, pos?: number, cause?: C) {
             cause ??= line as any;
-            if (new.target || !(this instanceof ParseError)) {
-                this.prototype = DataError.prototype;
-                this.prototype.message = typeof line === "number" ? "Parse error at: " + line + ":" + pos : "";
-                this.prototype.name = "ParseError";
-                this.prototype.cause = {cause: cause ?? line};
-                this.prototype.line = typeof line === "number" ? line : undefined;
-                this.prototype.pos = pos;
-                this.prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+            if (new.target) {
+                // this.prototype = DataError.prototype;
+                this.message = typeof line === "number" ? "Parse error at: " + line + ":" + pos : "";
+                this.name = "ParseError";
+                this.cause = {cause: cause ?? line};
+                this.line = typeof line === "number" ? line : undefined;
+                this.pos = pos;
+                this.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
                 // if(typeof line !== "number" && (!util.isValid(pos)) && (!util.isValid(cause))) {
@@ -257,14 +257,14 @@ namespace mem {
             <C extends unknown = any>(line: number, pos: number, cause?: C): ParseError<C>;
         };
         export const SyntaxError: SyntaxErrorConstructor = function <C extends unknown = any>(this: SyntaxError, line: number, pos: number, cause?: C) {
-            if (new.target || !(this instanceof SyntaxError)) {
-                this.prototype = ParseError.prototype;
-                this.prototype.message = "Syntax error at: " + line + ":" + pos;
-                this.prototype.name = "SyntaxError";
-                this.prototype.cause = {cause};
-                this.prototype.line = line;
-                this.prototype.pos = pos;
-                this.prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+            if (new.target) {
+                // this.prototype = ParseError.prototype;
+                this.message = "Syntax error at: " + line + ":" + pos;
+                this.name = "SyntaxError";
+                this.cause = {cause};
+                this.line = line;
+                this.pos = pos;
+                this.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
                 return {
@@ -628,11 +628,11 @@ namespace mem {
                 if (typeof x === "number") return parseOnPrecedence(x, y as GLexer<token.GToken<T>, S>, z as S);
                 return parse(x as GLexer<token.GToken<T>, S>, y as any as S);
             }) as Parse;
-            (pratt as any).prototype = Object.prototype;
-            (pratt as any).prototype.consume = consume;
-            (pratt as any).prototype.match = match;
-            (pratt as any).prototype.readAndPeek = readAndPeek;
-            (pratt as any).prototype.readAndPop = readAndPop;
+            // (pratt as any).prototype = Object.prototype;
+            (pratt as any).consume = consume;
+            (pratt as any).match = match;
+            (pratt as any).readAndPeek = readAndPeek;
+            (pratt as any).readAndPop = readAndPop;
             return pratt as PrattParser<E, S, T>;
         } as PrattParserConstructor;
     }
@@ -647,12 +647,12 @@ namespace mem {
             <C extends unknown = any>(msg?: string, cause?: C): ExpressionError<C>;
         };
         export const ExpressionError: ExpressionErrorConstructor = function <C extends unknown = any>(this: ExpressionError | void, msg?: string, cause?: C) {
-            if (new.target || !(this instanceof ExpressionError)) {
-                (this! as any).prototype = DataError.prototype;
-                (this! as any).prototype.message = msg ?? "";
-                (this! as any).prototype.name = "ExpressionError";
-                (this! as any).prototype.cause = {cause};
-                (this! as any).prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+            if (new.target) {
+                // (this! as any).prototype = DataError.prototype;
+                (this! as any).message = msg ?? "";
+                (this! as any).name = "ExpressionError";
+                (this! as any).cause = {cause};
+                (this! as any).stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             }
             else {
                 return {
@@ -690,12 +690,12 @@ namespace mem {
             <C extends unknown = any>(msg?: string, cause?: C): FormatError<C>;
         };
         export const FormatError: FormatErrorConstructor = function <C extends unknown = any>(this: FormatError | void, msg?: string, cause?: C) {
-            if (new.target || !(this instanceof FormatError)) {
-                (this! as any).prototype = DataError.prototype;
-                (this! as any).prototype.message = msg ?? "";
-                (this! as any).prototype.name = "FormatError";
-                (this! as any).prototype.cause = cause;
-                (this! as any).prototype.stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
+            if (new.target) {
+                // (this! as any).prototype = DataError.prototype;
+                (this! as any).message = msg ?? "";
+                (this! as any).name = "FormatError";
+                (this! as any).cause = cause;
+                (this! as any).stack = util.isValid(cause) ? ((util.isValid((cause as { stack: string }).stack) ? (cause as { stack: string }).stack : "") + util.eol + ((cause as Error).message ?? String(cause))) : "";
             } else {
                 return {
                     message: msg ?? "",
