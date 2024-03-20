@@ -137,9 +137,9 @@ namespace dsv {
                      */
                     readonly radix: number;
                 }[];
-                readonly parse: ((rawEscape: string) => string);
+                readonly parse: ((rawEscape: string, syntax: Syntax) => string);
             };
-            readonly parse: (<T>(cell: CellIndex, value?: string) => T);
+            readonly parse: (<T>(cell: CellIndex, syntax: Syntax, value?: string) => T);
             /**
              * **N**ested **O**bject o**P**erator. The character that is used (in the header) to identify properties in nested
              * objects in a csv document. For example if the operator is a `.` then:
@@ -562,8 +562,33 @@ namespace dsv {
     export type Parser = mem.parser.PrattParser<Expression, Syntax, string>;
     export type CellIndex = { row: number; col: number };
     export type Expression = mem.expression.GExpression<Serializer>;
+    /**
+    A cell value that represents a singly-linked list that only supports forward traversal such that each index is a text node.
+    e.g the field: `"Dave ""Mongoose"" Stick"` will be linked thus:
+    1. START_FIELD
+    1. PLAIN
+    1. ESCAPED
+    1. TEXT
+    1. ESCAPED
+    1. TEXT
+    1. END_FIELD
+    */  
     export type Text = Expression & {
-        (): string;
+        /**
+         * Returns the string value of this text and it.s siblings.
+         * When `syntax` is provided, all escapes are converted to their escaped value. e.g
+         * the escaped quotes `""` will be converted to `"` else all escapes are returned
+         * 'as is'.
+         * @param {Syntax} [syntax] an object provided to properly convert escaped characters
+         * @returns {string} the value of this text along with the value of other linked texts.
+         */
+        (syntax?: Syntax): string;
+        /**
+         * The sibling of this text.
+         * @param {true} next a `true` value to get the sibling.
+         * @returns {Text|null} the sibling of this element or `null` if it has no sibling.
+         */
+        (next: true): Text | null;
     };
     export type Plain = Text & {};
     export type Raw = Text & {};
@@ -571,17 +596,53 @@ namespace dsv {
     export type EndField = Text & {};
     export type Cell = Expression & {
         /**
-         * @param {util.Truthy} parse a truthy value specifying whether the to be value retrieved should be parsed before this retrieval
-         * @template {*} T the type of value to be retrieved if a truthy value was used as the argument.
-         * @returns {T | string} a value of type `T` if a truthy was passed as the argument or else the raw value of the cell
-         * will be returned as a `string`.
+         * Gets the parsed value whereby the initial value of this cell has been processed by all the available parsers
+         * (row, column and cell-wise)
          */
-        <T>(parse: null): T;
-        (): string;//raw data (primitive)
-        (raw: string): string;//overwrite data
-        (row: true): number;//row num
-        (col: false): number;//col num
-        (parsers: []): (<T>(raw: string) => T)[];//parsers for this cell
+        <T>(): T;
+        /**
+         * Gets the initial value with all escapes intact 'as is'.
+         * @param {Syntax} syntax the `Syntax` that was used to create this value.
+         * @returns {string} the raw data as a string.
+         */
+        (syntax: Syntax): string;//raw data (primitive)
+        /**
+         * Replaces this cell's value with the second argument, using the first argument as a guide.
+         * @param {T} prev the previous value
+         * @param {T} value the replacement value
+         * @returns {T} the new value.
+         */
+        <T>(prev: T, value: T): T;//overwrite data
+        /**
+         * Gets the row, column or cell index of this cell depending on the argument.
+         * @param {CellIndex} cell an object representing the type of return value.
+         * - If both the `row` and `col` properties are truthy, then the same object is populated with the
+         * actual row and column indices (indexes) of this cell.
+         * - If only the `row` is truthy, then the row index of this cell is returned as a number.
+         * - If only the `col` is truthy, then the column index is returned as a number.
+         * @returns {number | CellIndex} a `number` representing either the row or column index
+         * of this cell. It may also return a `CellIndex` representing the complete cell location
+         * within the given table.
+         */
+        (cell: CellIndex): number | CellIndex;
+        /**
+         * Immutable retrieval of all parsers for this cell. Only parsers specifically to this cell are returned.
+         * Row-wide and column-wide parsers are not returned.
+         * @param {never[]} parsers an empty array which will be populated with the parsers for this cell and returned.
+         * @returns {(<T, R>((s: Syntax, r: T) => R))[]} an array of all parsers for this cell
+         */
+        (parsers: never[]): (<T, R>(syntax: Syntax, raw?: T) => R)[];//parsers for this cell
+        /**
+         * Adds (or removes) a parser at the given index. If this is a delete operation, the last argument needs not
+         * be given.
+         * @param {number} index the index within the list of parser to add this parser. It is also the index (from the
+         * list if parsers) from which to remove the parser.
+         * @param {boolean} add `true` if an insertion is to be done. `false` if otherwise.
+         * @param {(<T, R>(syntax: Syntax, raw?: T) => R)} [parser] the parser to be added. This can be ignored if
+         * `add` is set to `false`.
+         * @returns {boolean} `true` if op was successful, `false` if not.
+         */
+        (index: number, add: boolean, parser?: (<T, R>(syntax: Syntax, raw?: T) => R)): boolean;
     };
     export type Row = Expression & {
         (): readonly string[];//primitive
@@ -600,11 +661,13 @@ namespace dsv {
     export const swap = Symbol("swap");
     export const html = Symbol("html");
     export type Table = Expression & {//table headers are at row 0
-        (): readonly string[][];//primitive
-        (row: Row[]): readonly Row[];//table
-        (row: number): Row;//row
-        (row: undefined | null, col: number): readonly Cell[];// col
-        (row: number, col: number): Cell;//cell
+        (syntax?: Syntax): (readonly string[][]) | readonly Cell[][];//primitive
+        /***/
+        (cell: CellIndex, syntax?: Syntax): (readonly string[]) | string | (readonly Cell[]) | Cell
+        // (row: Row[]): readonly Row[];//table
+        // (row: number): Row;//row
+        // (row: undefined | null, col: number): readonly Cell[];// col
+        // (row: number, col: number): Cell;//cell
         (row: number, col: number, cell: Cell): boolean;//replace the cell
         (c1: CellIndex, c2: CellIndex): readonly [Cell, Cell];//swap cells
         (cell: false, row: number): boolean;//row delete
