@@ -669,7 +669,7 @@ namespace mem {
             /**
              * The value in-memory. Used by formatters and serializers.
              */
-            (): any;
+            (syntax?: parser.Syntax): any;
             /**
              * for debugging
              * @throws {ExpressionError} if there is any issue encountered
@@ -682,6 +682,7 @@ namespace mem {
         }
         export type GExpression<F extends Format> = Expression & {
             (format: F, syntax: parser.Syntax): void
+            <T>(syntax?: parser.Syntax): T;
             <R>(e: Expression): R;
         }
         export type FormatError<C extends unknown = any> = DataError<C>;
