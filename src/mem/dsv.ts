@@ -15,6 +15,12 @@ namespace dsv {
         NULL = 1,// replace with `null`
         THROW = 2,//raise exception
     }
+    export enum TableUnaryOperation {
+        INSERT, DELETE, REPLACE
+    }
+    // export enum TableBinaryOperation {
+    //     SWAP
+    // }
     export const SEPARATOR = Type("1", 2); //(SEPARATOR as any).toJSON = () => "SEPARATOR";
     export const EOL = Type("2", 2); //(EOL as any).toJSON = () => "EOL";
     export const ESCAPE = Type("3", 2); //(ESCAPE as any).toJSON = () => "ESCAPE";
@@ -628,21 +634,23 @@ namespace dsv {
         /**
          * Immutable retrieval of all parsers for this cell. Only parsers specifically to this cell are returned.
          * Row-wide and column-wide parsers are not returned.
+         * @template T the input data type of the data parameter of the returned functor
+         * @template R the output data type of the returned functor
          * @param {never[]} parsers an empty array which will be populated with the parsers for this cell and returned.
-         * @returns {(<T, R>((s: Syntax, r: T) => R))[]} an array of all parsers for this cell
+         * @returns {(<T, R>((s: Syntax, data: T) => R))[]} an array of all parsers for this cell
          */
-        (parsers: never[]): (<T, R>(syntax: Syntax, raw?: T) => R)[];//parsers for this cell
+        <T, R>(parsers: never[]): ((syntax: Syntax, data?: T) => R)[];//parsers for this cell
         /**
          * Adds (or removes) a parser at the given index. If this is a delete operation, the last argument needs not
          * be given.
          * @param {number} index the index within the list of parser to add this parser. It is also the index (from the
          * list if parsers) from which to remove the parser.
          * @param {boolean} add `true` if an insertion is to be done. `false` if otherwise.
-         * @param {(<T, R>(syntax: Syntax, raw?: T) => R)} [parser] the parser to be added. This can be ignored if
+         * @param {(<T, R>(syntax: Syntax, data?: T) => R)} [parser] the parser to be added. This can be ignored if
          * `add` is set to `false`.
-         * @returns {boolean} `true` if op was successful, `false` if not.
+         * @returns {boolean} `true` if the operation was successful, `false` if not.
          */
-        (index: number, add: boolean, parser?: (<T, R>(syntax: Syntax, raw?: T) => R)): boolean;
+        (index: number, add: boolean, parser?: (<T, R>(syntax: Syntax, data?: T) => R)): boolean;
     };
     export type Row = Expression & {
         (): readonly string[];//primitive
@@ -660,35 +668,72 @@ namespace dsv {
     export const flip = Symbol("flip");
     export const swap = Symbol("swap");
     export const html = Symbol("html");
+    export const rLength = Symbol("rLength");
+    //Al mutative operations (inserts, appendage, prependage, deletion, swaps & merge triggers parsers to be called)
     export type Table = Expression & {//table headers are at row 0
         (syntax?: Syntax): (readonly string[][]) | readonly Cell[][];//primitive
-        /***/
-        (cell: CellIndex, syntax?: Syntax): (readonly string[]) | string | (readonly Cell[]) | Cell
-        // (row: Row[]): readonly Row[];//table
-        // (row: number): Row;//row
-        // (row: undefined | null, col: number): readonly Cell[];// col
-        // (row: number, col: number): Cell;//cell
-        (row: number, col: number, cell: Cell): boolean;//replace the cell
-        (c1: CellIndex, c2: CellIndex): readonly [Cell, Cell];//swap cells
-        (cell: false, row: number): boolean;//row delete
-        (cell: Cell, row: number): void;//row append
-        (cell: undefined | null, row: undefined, col: number): void;//col append
-        (cell: false, row: undefined, col: number): void;//col delete
-        (cell: Cell, row: undefined, col: number): void;//col append
-        (cell: undefined | null, row: number, col: number): void;//delete
-        (cell: Cell, row: number, col: number): void;//insert/overwrite
-        (col1: util.DecimalString, col2: util.DecimalString, merger: (c1: Cell, c2: Cell) => Cell): boolean//merge cols
-        (r1: number, r2: number, merger: (c1: Cell, c2: Cell) => Cell): boolean//merge cols
-        (table: Table): boolean//merge this with `table`
-        (row: number, splitter: (cell: Cell) => [Cell, Cell]): boolean//split row
-        (col: util.DecimalString, splitter: (cell: Cell) => [Cell, Cell]): boolean//split col
-        <T>(col: number, parsers: []): ((raw: string) => T)[];
+        /**
+         * Gets a row, column or cell in this table either as a formatted string, or an in-memory object.
+         * @param {CellIndex} cell the location of the row, column or cell to ge retrieved. The following determines the return value:
+         * - If `CellIndex.row` and `CellIndex.col` is set (a valid number), then the given cell/data is returned
+         * - If `CellIndex.col` is not given, then the specified row is returned.
+         * - If `CellIndex.row` is not given, then the specified column is returned.
+         * @param {Syntax} [syntax] a optional `Syntax` object. If given then a `Cell` object will be returned as a cell/data else if ommited
+         * then a `string` will be returned as a cell/data.
+         * @returns {((readonly string[]) | string | (readonly Cell[]) | Cell)} a row, column or cell within
+         * this table, depending on the argument(s).
+         */
+        (cell: CellIndex, syntax?: Syntax): (readonly string[]) | string | (readonly Cell[]) | Cell;
+        <T, R>(cell: CellIndex, parsers: never[]): (<T, R>(cells: Cell[], syntax: Syntax, data?: T) => R)[];//get parsers for the given row, col or cell
+        //Adds or remove the parser at the given index for the given row, col or cell
+        (index: number, add: boolean, cellIndex: CellIndex, parser?: (<T, R>(cells: Cell[], syntax: Syntax, data?: T) => R)): boolean;
+        /**
+         * Inserts, replaces or deletes a cell/column/row at the given location
+         * @param {CellIndex} ci the row, column or cell at which the operation
+         * is to take place
+         * @param {TableUnaryOperation} op the type of operation to be done
+         * @param {string|(string|undefined|null)[]} [data] the data for the insert/replace operation. If
+         * a row or column operation is intended, then this is expected to be an array else it is expected
+         * to be a string (or undefined)
+         * @returns {boolean} `true` if the operation was successful else returns `false`
+         */
+        (ci: CellIndex, op: TableUnaryOperation, data?: string | (string|undefined|null)[]): boolean;
+        /**
+         * Swaps rows, columns or cells.
+         * @param {CellIndex} c1 the left operand of the swap operation
+         * @param {CellIndex} c2 the right operand of the swap operation
+         * @return {(readonly [Cell, Cell]) | (readonly [Cell[], Cell[]])} the row, column or cell that was swapped after the operation completes
+         */
+        (c1: CellIndex, c2: CellIndex): (readonly [Cell, Cell]) | (readonly [Cell[], Cell[]]);//swap
+        /**
+         * Merges rows, columns or cells
+         * @param {CellIndex} c1 the left operand of the merge operation
+         * @param {CellIndex} c2 the right operand of the merge operation
+         * @return {boolean} a boolean value representing whether the merge was successful
+         */
+        (c1: CellIndex, c2: CellIndex, merger: ((x: Cell, y: Cell) => Cell) | ((x: Cell[], y: Cell[]) => Cell[])): boolean;
+        /**
+         * Merges this table with the argument
+         */
+        (table: Table): Table | undefined;//merge this with `table`
+        /**
+         * Splits a row, column or cell into 2 and inserts the second element of the resultant array into `dst`.
+         * @param {CellIndex} src the position of the row, column or cell to be split
+         * @param {((cell: Cell) => [Cell, Cell]) | ((cell: Cell[]) => [Cell[], Cell[]])} splitter the user-defined
+         * splitting function to be called. The first element of the return value will remain in the same position
+         * specified by `src`, but the second element of the returned value will be at `dst` or adjacent to
+         * `src` (if `dst` is undefined)
+         * @param {CellIndex} [dst] an optional destination of the second element of the array returned by `splitter`.
+         * @return {boolean} a boolean value representing whether the split was successful
+         */
+        (src: CellIndex, splitter: ((cell: Cell) => [Cell, Cell]) | ((cell: Cell[]) => [Cell[], Cell[]]), dst?: CellIndex): boolean;
         [transpose](reverse: boolean): void;//transposes table
         [flip](reverse: boolean): void;//flips table
         [swap](r1: number, r2: number): void;//swaps rows in table
         [swap](cl1: util.DecimalString, cl2: util.DecimalString): void;//swaps col in table
         [swap](c1: Cell, c2: Cell): void;//swaps cells in table
         [html](previous?: string): string;//pretty print a html table
+        [rLength](): number;//max row length
     };
     export interface Serializer extends mem.expression.GFormat<Expression, string> {
         (data?: Expression | string | string[] | string[][] | null): void;
