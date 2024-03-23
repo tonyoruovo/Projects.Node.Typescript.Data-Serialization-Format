@@ -18,6 +18,60 @@ namespace dsv {
     export enum TableUnaryOperation {
         INSERT, DELETE, REPLACE
     }
+    /**
+     * Merging Functor for cells
+     */
+    export type CellMerger =
+        /**
+         * Merges the given cells into one cell
+         * @param {Cell[]} cells the cells that to be merged. Athough this parameter is annotated as a
+         * rest parameter, it should contain an array with (at least) one cell as element or else the
+         * behaviour of this call is undefined.
+         * @returns {Cell} a new cell created from the input cells
+         */
+        (...cells: Cell[]) => Cell;
+    /**
+     * Merging Functor for rows
+     */
+    export type RowMerger =
+        /**
+         * Merges the given rows/columns into one
+         * @param {Cell[][]} data an array of the row(s)/column(s) to be merged. Athough this parameter is annotated as a
+         * rest parameter, it should contain an array with (at least) one row (or column) as element or else the
+         * behaviour of this call is undefined.
+         * @returns {Cell[]} a new row/column created from the input row(s)/column(s). It is recommended that
+         * the array of cells returned should be the same length as the array with the max number of cells in the argument.
+         */
+        (...data: Cell[][]) => Cell[];
+    /**
+     * Merging Functor for columns
+     */
+    export type ColMerger = RowMerger;
+    /** A function that merges mutiple rows, columns or cells into one */
+    export type Merger = CellMerger | RowMerger | ColMerger;
+
+    /**Splitting Functor for cells */
+    export type CellSplitter =
+        /**
+         * Splits a single cell within a table into multiple cells.
+         * @param {Cell} cell the cell to be split
+         * @returns {Cell[]} an array of cells split from the argument. In the context of a {@linkcode Table},
+         * this should be done in such a way that it does not compromise the symmetry of the table.
+         */
+        (cell: Cell) => Cell[];
+    /**Splitting Functor for rows */
+    export type RowSplitter =
+        /**
+         * Splits a single row/column within a table into multiple rows or columns.
+         * @param {Cell[]} data the row/column to be split
+         * @returns {Cell[][]} an array of multiple rows/columns split from the argument. In the context of a {@linkcode Table},
+         * this should be done in such a way that it does not compromise the symmetry of the table.
+         */
+        (data: Cell[]) => Cell[][];
+    /**Splitting Functor for columns */
+    export type ColSplitter = RowSplitter;
+    /** A function that splits a single row, column or cell into mutiple rows, columns or cells */
+    export type Splitter = CellSplitter | RowSplitter | ColSplitter;
     // export enum TableBinaryOperation {
     //     SWAP
     // }
@@ -51,6 +105,7 @@ namespace dsv {
              * - only quoted fields are valid
              * - whitespaces (except line-end and separator) are not allowed outside of fields
              * - all null fields that are just before a line terminator must be specified by a delimiter or empty quotes to be parsed as `null` else an error will be thrown
+             * - All escapes must be inside a quoted field
              */
             readonly strict: boolean;
             /**
@@ -341,34 +396,121 @@ namespace dsv {
                     ad: (x) => {
                         if (m.ls !== null && m.ls !== "px" + (esc.prefix[0] ?? "")) m[m.ls].ad("");
                         m.ls = "px" + (esc.prefix[0] ?? "");
-                        m["px" + (esc.prefix[0] ?? "")].value = (m["px" + (esc.prefix[0] ?? "")].value ?? "") + x!;
-                        //tackling the prefixes
-                        //It is a prefix so continue
-                        if (m["px" + (esc.prefix[0] ?? "")].length
-                            <= esc.prefix.length &&
-                            m["px" + (esc.prefix[0] ?? "")] === esc.prefix.substring(0, m["px" + (esc.prefix[0] ?? "")].value.length)) {
-                            return;
-                        }
-                        //tackling escape chars such as \r, \n, ""
-                        else if (m["px" + (esc.prefix[0] ?? "")].length > esc.prefix.length && esc.infix.indexOf(m["px" + (esc.prefix[0] ?? "")].value.substring(esc.prefix.length)) >= 0) {
-                            if (esc.suffix.length === 0) m["px" + (esc.prefix[0] ?? "")].ge();
-                        }
-                        //tackling hex unicodes/encodings
-                        else if (m["px" + (esc.prefix[0] ?? "")].length > esc.prefix.length) {
-                            const v = (m["px" + (esc.prefix[0] ?? "")].value.substring(esc.prefix.length) ?? "") as string;
-                            if (!util.isNumber(x!, esc.radix)) {
-                                if (v.length < esc.min) throw new Error("Not a number", { cause: x });
-                            } else if (v.length > esc.max) throw new Error("escape too long");
-                            else if (v.length === esc.max) m["px" + (esc.prefix[0] ?? "")].ge();
-                        }
-                        //tackling suffixes
-                        else if (m["px" + (esc.prefix[0] ?? "")].value.length > esc.prefix.length &&
-                            m["px" + (esc.prefix[0] ?? "")].value.endsWith(esc.suffix)) { m["px" + (esc.prefix[0] ?? "")].ge(); }
-                        // if (m["px" + (esc.prefix[0] ?? "")].value === esc.prefix || x === esc.suffix) m["px" + (esc.prefix[0] ?? "")].ge();
-                        // else if (m["px" + (esc.prefix[0] ?? "")].value.length < esc.prefix.length
-                        //     && m["px" + (esc.prefix[0] ?? "")].value === esc.prefix.substring(0, m["px" + (esc.prefix[0] ?? "")].value.length)) return;
-                        else {
-                            m["px" + (esc.prefix[0] ?? "")].ca();
+                        const c = (m[m.ls].value ?? "") as string;//current
+                        m[m.ls].value = c + x!;
+                        
+                        if(esc.prefix !== ""){
+                            //tackling the prefixes
+                            if(c.length < esc.prefix.length) {// prefix yet to be captured
+                                const cx = c + x;
+                                if(cx === esc.prefix.substring(0, cx.length)){
+                                    m[m.ls].value = cx;
+                                    return;
+                                } else {
+                                    m[m.ls].ca();
+                                    return;
+                                }
+                            } else if(c.length > esc.prefix.length) {// infix and/or suffix index
+                                if(esc.suffix.length > 0){
+                                    let ix = c.substring(esc.prefix.length);//infix
+                                    const ixx = ix + x;
+                                    const sx = (c.substring(c.lastIndexOf(esc.suffix[0]))??"");//suffix
+                                    const sxx = sx + x;
+                                    if(sxx === esc.suffix.substring(0, sxx.length)){//capturing suffix
+                                        if(sxx === esc.suffix) {//suffix found!
+                                            ix = ix.substring(0, ix.indexOf(esc.suffix[0]));
+                                            if(ix.length < esc.min && esc.min > 0) throw new Error("minimum character for character code sequence violated");
+                                            if(ix.length > esc.max && esc.max > 0) throw new Error("maximum characters for character code sequence violated");
+                                            m[m.ls].ge();
+                                            return;
+                                        } else {
+                                            m[m.ls].value = c + x!;
+                                            return;
+                                        }
+                                    } else if(util.isValid(esc.infix.filter(x => x.startsWith(ixx))[0])){//capturing infix
+                                        // if(esc.infix.indexOf(ixx) >= 0) {
+                                        // }
+                                        m[m.ls].value = c + x!;
+                                        return;
+                                    } else if(util.isNumber(x!, esc.radix)) {//capturing code points
+                                        if(ixx.length > esc.max && esc.max > 0) throw new Error("maximum characters for character code sequence violated");
+                                        m[m.ls].value = c + x!;
+                                        return;
+                                    } else {
+                                        m[m.ls].ca();
+                                        return;
+                                    }
+                                } else {
+                                    let ix = c.substring(esc.prefix.length);//infix
+                                    const ixx = ix + x;
+                                    if(util.isValid(esc.infix.filter(x => x.startsWith(ixx))[0])){//capturing infix
+                                        m[m.ls].value = c + x!;
+                                        if(esc.infix.indexOf(m[m.ls].value) >= 0) m[m.ls].ge();
+                                        return;
+                                    } else if(util.isNumber(x!, esc.radix)) {//capturing code points
+                                        m[m.ls].value = c + x!;
+                                        if(ixx.length === esc.max) m[m.ls].ge();
+                                        return;
+                                    } else if(x === "") {// for '\x23'
+                                        // m[m.ls].value = c + x!;
+                                        m[m.ls].ge();
+                                        return;
+                                    } else {
+                                        m[m.ls].ca();
+                                        return;
+                                    }
+                                }
+                            }
+                        } else {
+                            if(esc.suffix.length > 0){
+                                let ix = c;//infix
+                                const ixx = ix + x;
+                                const sx = (c.substring(c.lastIndexOf(esc.suffix[0]))??"");//suffix
+                                const sxx = sx + x;
+                                if(sxx === esc.suffix.substring(0, sxx.length)){//capturing suffix
+                                    if(sxx === esc.suffix) {//suffix found!
+                                        ix = ix.substring(0, ix.indexOf(esc.suffix[0]));
+                                        if(ix.length < esc.min && esc.min > 0) throw new Error("minimum character for character code sequence violated");
+                                        if(ix.length > esc.max && esc.max > 0) throw new Error("maximum characters for character code sequence violated");
+                                        m[m.ls].ge();
+                                        return;
+                                    } else {
+                                        m[m.ls].value = c + x!;
+                                        return;
+                                    }
+                                } else if(util.isValid(esc.infix.filter(x => x.startsWith(ixx))[0])){//capturing infix
+                                    // if(esc.infix.indexOf(ixx) >= 0) {
+                                    // }
+                                    m[m.ls].value = c + x!;
+                                    return;
+                                } else if(util.isNumber(x!, esc.radix)) {//capturing code points
+                                    if(ixx.length > esc.max && esc.max > 0) throw new Error("maximum characters for character code sequence violated");
+                                    m[m.ls].value = c + x!;
+                                    return;
+                                } else {
+                                    m[m.ls].ca();
+                                    return;
+                                }
+                            } else {
+                                let ix = c;//infix
+                                const ixx = ix + x;
+                                if(util.isValid(esc.infix.filter(x => x.startsWith(ixx))[0])){//capturing infix
+                                    m[m.ls].value = c + x!;
+                                    if(esc.infix.indexOf(m[m.ls].value) >= 0) m[m.ls].ge();
+                                    return;
+                                } else if(util.isNumber(x!, esc.radix)) {//capturing code points
+                                    m[m.ls].value = c + x!;
+                                    if(ixx.length === esc.max) m[m.ls].ge();
+                                    return;
+                                } else if(x === "") {
+                                    m[m.ls].value = c + x!;
+                                    m[m.ls].ge();
+                                    return;
+                                } else {
+                                    m[m.ls].ca();
+                                    return;
+                                }
+                            }
                         }
                     },
                     ca: () => {
@@ -377,11 +519,12 @@ namespace dsv {
                         m.ad(m["px" + (esc.prefix[0] ?? "")].value);
                     },
                     ge: () => {
-                        const v = (m["px" + (esc.prefix[0] ?? "")].value as string);
-                        const i = v.lastIndexOf(esc.suffix);
-                        if (i < 0 && esc.suffix.length > 0) throw new Error("suffix not found");
-                        manufacture(Token(v.substring(0, i + 1), ESCAPED, line(), line(), position()));
-                        m["px" + (esc.prefix[0] ?? "")].value = null;
+                        const v = (m[m.ls!].value as string);
+                        // const i = v.lastIndexOf(esc.suffix);
+                        // if (i < 0 && esc.suffix.length > 0) throw new Error("suffix not found");
+                        // manufacture(Token(v.substring(0, i), ESCAPED, line(), line(), position()));
+                        manufacture(Token(v, ESCAPED, line(), line(), position()));
+                        m[m.ls!].value = null;
                         m.ls = null;
                     },
                 } as Tokenizer;
@@ -566,7 +709,39 @@ namespace dsv {
     } as LexerConstructor;
     export type Command = mem.parser.GCommand<mem.token.GToken<string>, Expression, Syntax, Lexer, Parser>;
     export type Parser = mem.parser.PrattParser<Expression, Syntax, string>;
-    export type CellIndex = { row: number; col: number };
+    /**
+     * A location within a {@linkcode Table}.
+     * \
+     * A valid value means that the value is a
+     * `number` type and can be located on the table without being `undefined` \
+     * \
+     * A convention of using a `CellIndex` specify a location within a `Table` is as follows:
+     * - If both `row` and `col` have valid values, then a cell location has been specified.
+     * - If `col` is not valid, then a row location has been specified.
+     * - If `row` is not valid, then a column location has been specified.
+     */
+    export type CellIndex = {
+        /**
+         * The position of the row in which the cell is located
+        */
+       row: number;
+       /**
+        * The position of the column in which the cell is located
+       */
+      col: number
+    };
+    export type CellIndexConstructor = {
+        new (row?: number | null, col?: number | null): CellIndex;
+        (row?: number | null, col?: number | null): CellIndex;
+    };
+    export const CellIndex = function(this: CellIndex, row?: number | null, col?: number | null) {
+        if(new.target){
+            this.row = row as number;
+            this.col = col as number;
+        } else {
+            return new CellIndex(row, col);
+        }
+    } as CellIndexConstructor;
     export type Expression = mem.expression.GExpression<Serializer>;
     /**
     A cell value that represents a singly-linked list that only supports forward traversal such that each index is a text node.
@@ -578,7 +753,7 @@ namespace dsv {
     1. ESCAPED
     1. TEXT
     1. END_FIELD
-    */  
+    */
     export type Text = Expression & {
         /**
          * Returns the string value of this text and it.s siblings.
@@ -666,10 +841,9 @@ namespace dsv {
     };
     export const transpose = Symbol("transpose");
     export const flip = Symbol("flip");
-    export const swap = Symbol("swap");
     export const html = Symbol("html");
     export const rLength = Symbol("rLength");
-    //Al mutative operations (inserts, appendage, prependage, deletion, swaps & merge triggers parsers to be called)
+    /**All mutative operations (inserts, appendage, prependage, deletion, swaps, splits & mergers triggers parsers to be called).*/
     export type Table = Expression & {//table headers are at row 0
         (syntax?: Syntax): (readonly string[][]) | readonly Cell[][];//primitive
         /**
@@ -684,8 +858,11 @@ namespace dsv {
          * this table, depending on the argument(s).
          */
         (cell: CellIndex, syntax?: Syntax): (readonly string[]) | string | (readonly Cell[]) | Cell;
-        <T, R>(cell: CellIndex, parsers: never[]): (<T, R>(cells: Cell[], syntax: Syntax, data?: T) => R)[];//get parsers for the given row, col or cell
-        //Adds or remove the parser at the given index for the given row, col or cell
+        /**
+         * Get parsers for the given row, column or cell
+         */
+        <T, R>(cell: CellIndex, parsers: never[]): (<T, R>(cells: Cell[], syntax: Syntax, data?: T) => R)[];
+        /**Adds or removes the parser at the given index for the given row, col or cell*/
         (index: number, add: boolean, cellIndex: CellIndex, parser?: (<T, R>(cells: Cell[], syntax: Syntax, data?: T) => R)): boolean;
         /**
          * Inserts, replaces or deletes a cell/column/row at the given location
@@ -697,7 +874,7 @@ namespace dsv {
          * to be a string (or undefined)
          * @returns {boolean} `true` if the operation was successful else returns `false`
          */
-        (ci: CellIndex, op: TableUnaryOperation, data?: string | (string|undefined|null)[]): boolean;
+        (ci: CellIndex, op: TableUnaryOperation, data?: string | (string | undefined | null)[]): boolean;
         /**
          * Swaps rows, columns or cells.
          * @param {CellIndex} c1 the left operand of the swap operation
@@ -706,32 +883,31 @@ namespace dsv {
          */
         (c1: CellIndex, c2: CellIndex): (readonly [Cell, Cell]) | (readonly [Cell[], Cell[]]);//swap
         /**
-         * Merges rows, columns or cells
-         * @param {CellIndex} c1 the left operand of the merge operation
-         * @param {CellIndex} c2 the right operand of the merge operation
+         * Merges rows, columns or cells. The merged data will have the same location(s) as `indexes`
+         * @param {CellIndex[]} indexes the locations of the data to be merged
+         * @param {Merger} merger a user-defined merging function to be called
          * @return {boolean} a boolean value representing whether the merge was successful
          */
-        (c1: CellIndex, c2: CellIndex, merger: ((x: Cell, y: Cell) => Cell) | ((x: Cell[], y: Cell[]) => Cell[])): boolean;
+        (indexes: CellIndex[], merger: Merger): boolean;
         /**
          * Merges this table with the argument
          */
         (table: Table): Table | undefined;//merge this with `table`
         /**
-         * Splits a row, column or cell into 2 and inserts the second element of the resultant array into `dst`.
-         * @param {CellIndex} src the position of the row, column or cell to be split
-         * @param {((cell: Cell) => [Cell, Cell]) | ((cell: Cell[]) => [Cell[], Cell[]])} splitter the user-defined
-         * splitting function to be called. The first element of the return value will remain in the same position
-         * specified by `src`, but the second element of the returned value will be at `dst` or adjacent to
-         * `src` (if `dst` is undefined)
-         * @param {CellIndex} [dst] an optional destination of the second element of the array returned by `splitter`.
+         * Splits a row, column or cell into the given number of elements (specified by `src.length`) and
+         * inserts the second element of the resultant array into `dst`.
+         * @param {CellIndex[]} src the positions of the row, column or cell to be split
+         * @param {Splitter} splitter the user-defined splitting function to be called. The first element
+         * of the return value will remain in the same position specified by `src`, but the second element
+         * of the returned value will be at `dst` or adjacent to `src` (if `dst` is undefined)
+         * @param {CellIndex[]} [dst] the optional destinations of resultant elements of the array returned by `splitter`.
+         * If this is a `Cell` splitter, then a replacement is done on the positions specified by this argument. This should
+         * have the same length as `splitter` or the behaviour of this call will be undefined.
          * @return {boolean} a boolean value representing whether the split was successful
          */
-        (src: CellIndex, splitter: ((cell: Cell) => [Cell, Cell]) | ((cell: Cell[]) => [Cell[], Cell[]]), dst?: CellIndex): boolean;
+        (src: CellIndex[], splitter: Splitter, dst?: CellIndex[]): boolean;
         [transpose](reverse: boolean): void;//transposes table
         [flip](reverse: boolean): void;//flips table
-        [swap](r1: number, r2: number): void;//swaps rows in table
-        [swap](cl1: util.DecimalString, cl2: util.DecimalString): void;//swaps col in table
-        [swap](c1: Cell, c2: Cell): void;//swaps cells in table
         [html](previous?: string): string;//pretty print a html table
         [rLength](): number;//max row length
     };
@@ -749,7 +925,7 @@ namespace dsv {
         l.end(s);
         console.table(l.processed());
     }
-    Test("jan,feb,mar", {
+    Test("jan,\"feb\",mar", {
         delimiter: ",",
         eol: "\n",
         header: [],
@@ -774,7 +950,7 @@ namespace dsv {
                     suffix: ""
                 }]
             }
-        }
+        },
     } as any as Syntax);
 }
 export default dsv; 
