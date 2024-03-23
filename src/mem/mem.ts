@@ -90,14 +90,17 @@ namespace mem {
                 // (this! as any).prototype = Object.prototype;
                 (this! as any).id = id;
                 (this! as any).precedence = precedence;
-                (this! as any).toString = () => JSON.stringify(this);
+                (this! as any).toString = () => id;//JSON.stringify(this);
+                (this! as any)[Symbol.toStringTag] = () => id;//JSON.stringify(this);
+                (this! as any).toJSON = () => id;//JSON.stringify(this);
                 (this! as any).equals = (o?: object) => (o instanceof GType) ? this!.id === o.id && this!.precedence === o.precedence : false;
             } else {
-                const doppleganger: any = { id, precedence };
-                // doppleganger.prototype = GType.prototype;
-                (doppleganger! as any).toString = () => JSON.stringify(doppleganger);
-                (doppleganger! as any).equals = (o?: object) => (o instanceof GType) ? doppleganger!.id === o.id && doppleganger!.precedence === o.precedence : false;
-                return Object.freeze(doppleganger as GType<string>);
+                // const doppleganger: any = { id, precedence };
+                // // doppleganger.prototype = GType.prototype;
+                // (doppleganger! as any).toString = () => JSON.stringify(doppleganger);
+                // (doppleganger! as any).equals = (o?: object) => (o instanceof GType) ? doppleganger!.id === o.id && doppleganger!.precedence === o.precedence : false;
+                // return Object.freeze(doppleganger as GType<string>);
+                return new GType(id, precedence);
             }
         } as TypeConstructor;
         export type Token = util.Hashable & util.Predicatable & util.Comparable<Token> & {
@@ -183,28 +186,29 @@ namespace mem {
                 }
 
             } else {
-                const doppleganger: any = { value, type, lineEnd, lineStart, startPos, length: value.length };
-                // doppleganger.prototype = GToken.prototype;
-                doppleganger.equals = (o?: object) => (o instanceof GToken) ?
-                    (doppleganger.lineStart == o.lineStart && doppleganger.lineEnd == o.lineEnd && doppleganger.startPos === o.startPos
-                        && doppleganger.type!.equals(o.type) && doppleganger.value === o.value) : false;
-                doppleganger.hashCode32 = () =>
-                    util.hashCode32(true, util.asHashable(doppleganger.value), util.asHashable(doppleganger.type!.id), util.asHashable(doppleganger.type!.precedence), util.asHashable(doppleganger.startPos), util.asHashable(doppleganger.lineEnd), util.asHashable(doppleganger.lineStart));
-                doppleganger.compareTo = (o?: Token) => {
-                    if (util.isValid(o)) {
-                        let by = util.compare(doppleganger.lineStart, o!.lineStart);
-                        if (by !== 0) return by;
-                        by = util.compare(doppleganger.lineEnd, o!.lineEnd);
-                        if (by !== 0) return by;
-                        by = util.compare(doppleganger.startPos, o!.startPos);
-                        if (by !== 0) return by;
-                        by = util.asCompare(util.hashCode32(true, util.asHashable(doppleganger.type!.id), util.asHashable(doppleganger.type!.precedence)));
-                        if (by !== 0) return by;
-                        return util.compare(doppleganger.value, o!.value);
-                    }
-                    return 1;
-                }
-                return Object.freeze(doppleganger as GToken<string>);
+                // const doppleganger: any = { value, type, lineEnd, lineStart, startPos, length: value.length };
+                // // doppleganger.prototype = GToken.prototype;
+                // doppleganger.equals = (o?: object) => (o instanceof GToken) ?
+                //     (doppleganger.lineStart == o.lineStart && doppleganger.lineEnd == o.lineEnd && doppleganger.startPos === o.startPos
+                //         && doppleganger.type!.equals(o.type) && doppleganger.value === o.value) : false;
+                // doppleganger.hashCode32 = () =>
+                //     util.hashCode32(true, util.asHashable(doppleganger.value), util.asHashable(doppleganger.type!.id), util.asHashable(doppleganger.type!.precedence), util.asHashable(doppleganger.startPos), util.asHashable(doppleganger.lineEnd), util.asHashable(doppleganger.lineStart));
+                // doppleganger.compareTo = (o?: Token) => {
+                //     if (util.isValid(o)) {
+                //         let by = util.compare(doppleganger.lineStart, o!.lineStart);
+                //         if (by !== 0) return by;
+                //         by = util.compare(doppleganger.lineEnd, o!.lineEnd);
+                //         if (by !== 0) return by;
+                //         by = util.compare(doppleganger.startPos, o!.startPos);
+                //         if (by !== 0) return by;
+                //         by = util.asCompare(util.hashCode32(true, util.asHashable(doppleganger.type!.id), util.asHashable(doppleganger.type!.precedence)));
+                //         if (by !== 0) return by;
+                //         return util.compare(doppleganger.value, o!.value);
+                //     }
+                //     return 1;
+                // }
+                // return Object.freeze(doppleganger as GToken<string>);
+                return new GToken(value, type, lineStart, lineEnd, startPos);
             }
         } as TokenConstructor;
     }
