@@ -590,11 +590,13 @@ namespace dsv {
                     // m.tx.value = m[s.field.quotes[0][0]].value;
                     // m.ls = "tx";
                     m[s.field.quotes[0][0]].value = null;
+                    m.start = false;
                     m.ls = null;
                     m.ad(m[s.field.quotes[0][0]].value);
                 },
                 ge: () => {
                     manufacture(Token(m[s.field.quotes[0][0]].value as string, L_QUOTE, line(), line(), position()));
+                    m.start = true;
                     m[s.field.quotes[0][0]].value = null;
                     m.ls = null;
                 },
@@ -618,11 +620,13 @@ namespace dsv {
                     // m.tx.value = m[s.field.quotes[1][0]].value;
                     // m.ls = "tx";
                     m[s.field.quotes[1][0]].value = null;
+                    m.start = false;
                     m.ls = null;
                     m.ad(m[s.field.quotes[1][0]].value);
                 },
                 ge: () => {
                     manufacture(Token(m[s.field.quotes[1][0]].value as string, R_QUOTE, line(), line(), position()));
+                    m.start = false;
                     m[s.field.quotes[1][0]].value = null;
                     m.ls = null;
                 },
@@ -637,6 +641,7 @@ namespace dsv {
             };
             m.ca = () => {
                 if (m.ls !== null && m.ls !== undefined) m[m.ls].ca();
+                m.start = false;
             };
 
             return m;
@@ -772,18 +777,31 @@ namespace dsv {
          */
         (syntax?: Syntax): string;
         /**
-         * The sibling of this text.
-         * @param {true} next a `true` value to get the sibling.
-         * @returns {Text|null} the sibling of this element or `null` if it has no sibling.
+         * Gets the sibling of this text or checks if this text has a sibling.
+         * @param {boolean} next use `true` value to get the sibling or `false` value to check if this `Text` node has a sibling.
+         * @returns {Text|null|boolean} the sibling of this element (or `null`
+         * if this node does not have any sibling) or `boolean` to check if this node has any sibling.
          */
-        (next: true): Text | null;
+        (next: boolean): Text | null | boolean;
+        /**
+         * Adds, deletes or gets the number of nodes in this text depending on the argument(s)
+         * @param {number} index a number value to specify whether to get the number of nodes
+         * in this text or insert a new text node. A negative value will cause this method to
+         * returns the number of nodes in this node. A zero or positive value will cause the this method
+         * to perform an insertion of the second argument into the given index.
+         * @param {Text | null} [text] an optional value (a mandatory value if insertion is intended) to be
+         * inserted into the non-negative index specified by the first index. 
+         * @returns {Text | null | number} a number value if the first argument is negative else returns
+         * the second argument signifying a successful insert/deletion.
+         */
+        (index: number, text?: Text | null): Text;//add, delete, length
     };
     type Plain = Text & {};
     type PC = (s: string) => Plain;
     const Plain = function(this: Plain, s: string) {
         let sib: Text|null;//sibling
         const a = (t: Text) => sib = t;//add
-        const n = (next: true) => sib;//next
+        const n = (next: boolean) => next ? sib : (util.isValid(sib));//next
         const v = (sx?: Syntax) => util.isValid(sib) ? s + sib!(sx) : s;//value
         const d = (str: string) => util.isValid(sib) ? sib!(str + s) : str + s;//debug
         const fe = (e: mem.expression.Expression) => {//from expression
@@ -793,8 +811,16 @@ namespace dsv {
         }
         const f = (sz: Serializer, sx: Syntax) => sz(this);
         const p = (a: any, b: any) => {//plain
-            if(a === true && this.length === 1) n(a);
-            else if
+            if(arguments.length === 1) {}
+            switch (arguments.length) {
+                case 0:
+                default:
+                    break;
+                case 1:
+                    break;
+                case 2:
+                    break;
+            }
         }
     } as PC
     type Coded = Text & {};
