@@ -72,9 +72,6 @@ namespace dsv {
     export type ColSplitter = RowSplitter;
     /** A function that splits a single row, column or cell into mutiple rows, columns or cells */
     export type Splitter = CellSplitter | RowSplitter | ColSplitter;
-    // export enum TableBinaryOperation {
-    //     SWAP
-    // }
     export const SEPARATOR = Type("1", 2); //(SEPARATOR as any).toJSON = () => "SEPARATOR";
     export const EOL = Type("2", 2); //(EOL as any).toJSON = () => "EOL";
     export const ESCAPE = Type("3", 2); //(ESCAPE as any).toJSON = () => "ESCAPE";
@@ -106,6 +103,7 @@ namespace dsv {
              * - whitespaces (except line-end and separator) are not allowed outside of fields
              * - all null fields that are just before a line terminator must be specified by a delimiter or empty quotes to be parsed as `null` else an error will be thrown
              * - All escapes must be inside a quoted field
+             * - all rows must have the same number of fields
              */
             readonly strict: boolean;
             /**
@@ -297,15 +295,12 @@ namespace dsv {
         type TokenFactory = mem.parser.TokenFactory;
         type Tokenizer = mem.parser.Tokenizer;
         const queue: Token[] = [];
-        const header: string[] = [];
         let p = 1, l = 1;
-        let mill: TokenFactory;
         let src = "";
-        let esc = 0;
-        // let escText = "";
         const constructMill = (s: Syntax) => {
             if (nx.mill) return nx.mill;
             const m = { ls: null } as TokenFactory;
+            m.start = false;
             m.tx = {
                 ad(x) {
                     if (m.ls !== null && m.ls !== "tx") m[m.ls].ad("");
@@ -317,7 +312,7 @@ namespace dsv {
                     }
                     else if (s.field.quotes.filter(q => q.startsWith(x!)).length > 0) {
                         m.tx.ge();
-                        m[x!].ad(x);
+                        m['c' + x!].ad(x);
                     }
                     else if (s.delimiter.startsWith(x!)) {
                         m.tx.ge();
@@ -576,15 +571,20 @@ namespace dsv {
                     m.ls = null;
                 },
             } as Tokenizer;
-            m[s.field.quotes[0][0]] = {//start quote
+            m["o" + (s.field.quotes[0][0] ?? "")] = {//start quote
                 value: null,
                 ad: (x) => {
-                    if (m.ls !== null && m.ls !== s.field.quotes[0][0]) m[m.ls].ad("");
-                    m.ls = s.field.quotes[0][0];
-                    m[s.field.quotes[0][0]].value = (m[s.field.quotes[0][0]].value ?? "") + x!;
-                    if (m[s.field.quotes[0][0]].value === s.field.quotes[0]) m[s.field.quotes[0][0]].ge();
-                    else if (m[s.field.quotes[0][0]].value.length < s.field.quotes[0].length && m[s.field.quotes[0][0]].value === s.field.quotes[0].substring(0, m[s.field.quotes[0][0]].value.length)) return;
-                    else m[s.field.quotes[0][0]].ca();
+                    if (m.ls !== null && m.ls !== 'o' + (s.field.quotes[0][0] ?? "")) m[m.ls].ad("");
+                    m.ls = 'o' + (s.field.quotes[0][0] ?? "");
+                    const c = (m[m.ls].value ?? "") + x!;
+                    if(m.start) {
+                        m['c' + s.field.quotes[1][0]].ad(x);
+                        return;
+                    } else if(c === s.field.quotes[0][0].substring(0, c.length)){
+                        const val = c;
+                        if(val === s.field.quotes[0][0]) m[m.ls].ge();
+                        else m[m.ls].value = c;
+                    } else m[m.ls].ca();
                 },
                 ca: () => {
                     // m.tx.value = m[s.field.quotes[0][0]].value;
@@ -599,15 +599,20 @@ namespace dsv {
                     m.ls = null;
                 },
             } as Tokenizer;
-            m[s.field.quotes[1][0]] = {//end quote
+            m['c' + s.field.quotes[1][0]] = {//end quote
                 value: null,
                 ad: (x) => {
-                    if (m.ls !== null && m.ls !== s.field.quotes[1][0]) m[m.ls].ad("");
-                    m.ls = s.field.quotes[1][0];
-                    m[s.field.quotes[1][0]].value = (m[s.field.quotes[1][0]].value ?? "") + x!;
-                    if (m[s.field.quotes[1][0]].value === s.field.quotes[1]) m[s.field.quotes[1][0]].ge();
-                    else if (m[s.field.quotes[1][0]].value.length < s.field.quotes[1].length && m[s.field.quotes[1][0]].value === s.field.quotes[1].substring(0, m[s.field.quotes[1][0]].value.length)) return;
-                    else m[s.field.quotes[1][0]].ca();
+                    if (m.ls !== null && m.ls !== 'c' + (s.field.quotes[1][0] ?? "")) m[m.ls].ad("");
+                    m.ls = 'c' + (s.field.quotes[1][0] ?? "");
+                    const c = (m[m.ls].value ?? "") + x!;
+                    if(!m.start) {
+                        m['o' + s.field.quotes[0][0]].ad(x);
+                        return;
+                    } else if(c === s.field.quotes[1][0].substring(0, c.length)){
+                        const val = c;
+                        if(val === s.field.quotes[1][0]) m[m.ls].ge();
+                        else m[m.ls].value = c;
+                    } else m[m.ls].ca();
                 },
                 ca: () => {
                     // m.tx.value = m[s.field.quotes[1][0]].value;
@@ -624,6 +629,8 @@ namespace dsv {
             } as Tokenizer;
             m.ad = x => {
                 if (util.isValid(m.ls)) m[m.ls!].ad(x);
+                else if(x === s.field.quotes[0][0].substring(0, x!.length)) m['o' + s.field.quotes[0][0]].ad(x);
+                else if(x === s.field.quotes[1][0].substring(0, x!.length)) m['o' + s.field.quotes[1][0]].ad(x);
                 else if (util.isValid(m[x!])) m[x!].ad(x);
                 else if (util.isWhitespace(x!)) m.ws.ad(x!);//for whitespaces
                 else m.tx.ad(x);
@@ -676,7 +683,7 @@ namespace dsv {
             p += distance;
             return rv;
         }
-        const escIsEven = () => esc % 2 === 0;
+        // const escIsEven = () => esc % 2 === 0;
         const process = (chunk: string, syntax: Syntax) => {
             (nx as any).mill = constructMill(syntax);
             nx.src += chunk;
@@ -705,7 +712,7 @@ namespace dsv {
         // if(new.target) {
         //     this!.prototype = nx.prototype;
         // } else {}
-        return nx;
+        return Object.freeze(nx);
     } as LexerConstructor;
     export type Command = mem.parser.GCommand<mem.token.GToken<string>, Expression, Syntax, Lexer, Parser>;
     export type Parser = mem.parser.PrattParser<Expression, Syntax, string>;
@@ -771,10 +778,31 @@ namespace dsv {
          */
         (next: true): Text | null;
     };
-    export type Plain = Text & {};
-    export type Raw = Text & {};
-    export type StartField = Text & {};
-    export type EndField = Text & {};
+    type Plain = Text & {};
+    type PC = (s: string) => Plain;
+    const Plain = function(this: Plain, s: string) {
+        let sib: Text|null;//sibling
+        const a = (t: Text) => sib = t;//add
+        const n = (next: true) => sib;//next
+        const v = (sx?: Syntax) => util.isValid(sib) ? s + sib!(sx) : s;//value
+        const d = (str: string) => util.isValid(sib) ? sib!(str + s) : str + s;//debug
+        const fe = (e: mem.expression.Expression) => {//from expression
+            const p = e();//primitive
+            if(!util.isValid(p)) return "";
+            return String(p);
+        }
+        const f = (sz: Serializer, sx: Syntax) => sz(this);
+        const p = (a: any, b: any) => {//plain
+            if(a === true && this.length === 1) n(a);
+            else if
+        }
+    } as PC
+    type Coded = Text & {};
+    type CC = (s: string) => Coded;
+    type StartField = Text & {};
+    type SC = (s: string) => StartField;
+    type EndField = Text & {};
+    type EC = (s: string) => EndField;
     export type Cell = Expression & {
         /**
          * Gets the parsed value whereby the initial value of this cell has been processed by all the available parsers
@@ -786,7 +814,7 @@ namespace dsv {
          * @param {Syntax} syntax the `Syntax` that was used to create this value.
          * @returns {string} the raw data as a string.
          */
-        (syntax: Syntax): string;//raw data (primitive)
+        (syntax?: Syntax): string;//raw data (primitive)
         /**
          * Replaces this cell's value with the second argument, using the first argument as a guide.
          * @param {T} prev the previous value
@@ -827,18 +855,19 @@ namespace dsv {
          */
         (index: number, add: boolean, parser?: (<T, R>(syntax: Syntax, data?: T) => R)): boolean;
     };
-    export type Row = Expression & {
-        (): readonly string[];//primitive
-        (c: CellIndex): readonly Cell[];
-        (col: number): Cell;
-        (cell: Cell): void;//append to this row
-        (cell: readonly Cell[]): void;//overwrite/replace this row
-        (cell: Cell, col: false): void;//prepend to this row
-        (cell: Cell, col: number): void;//insert/overwrite
-        (parsers: []): (<T>(raw: string) => T)[];//parsers for this row
-        <T>(parse: null): T;//reduce this row
-        (r: Row, merger?: (c1: Cell, c2: Cell) => Cell): boolean; // merge
-    };
+    export type CellConstructor = {
+        // new (cell: CellIndex, text?: Text): Cell;
+        (cell: CellIndex, text?: Text): Cell;
+    }
+    export const Cell = function(this: Cell, cell: CellIndex, text: Text) {
+        const i = new CellIndex(cell.row, cell.col);
+        const t = text;
+        const p = (s?: Syntax) => t(s);
+        const f = (e: mem.expression.Expression) => t(e);
+        const g = (f: mem.expression.Format, s?: Syntax) => t(f, s);
+        const o = <T>(prev: T, val: T) => {
+        }
+    } as CellConstructor;
     export const transpose = Symbol("transpose");
     export const flip = Symbol("flip");
     export const html = Symbol("html");
