@@ -788,19 +788,28 @@ namespace dsv {
          * @param {number} index a number value to specify whether to get the number of nodes
          * in this text or insert a new text node. A negative value will cause this method to
          * returns the number of nodes in this node. A zero or positive value will cause the this method
-         * to perform an insertion of the second argument into the given index.
+         * to perform an insertion (or deletion) of the second argument into the given index.
          * @param {Text | null} [text] an optional value (a mandatory value if insertion is intended) to be
          * inserted into the non-negative index specified by the first index. 
          * @returns {Text | null | number} a number value if the first argument is negative else returns
          * the second argument signifying a successful insert/deletion.
          */
-        (index: number, text?: Text | null): Text;//add, delete, length
+        (index: number, text?: Text | null): Text | null | number;//add, delete, length
     };
     type Plain = Text & {};
-    type PC = (s: string) => Plain;
-    const Plain = function(this: Plain, s: string) {
-        let sib: Text|null;//sibling
-        const a = (t: Text) => sib = t;//add
+    type PC = (s: string, sibling?: Text) => Plain;
+    const Plain = function(this: Plain, s: string, sibling: Text|null = null) {
+        let sib: Text|null = sibling as Text;//sibling
+        const x: (i: number, t?: Text | null) => Text | null | number = (i: number, t?: Text | null) => {
+            if(i < 0) return 1 + ((util.isValid(sib) ? sib!(i) : 0) as number);
+            if(i === 0) {
+                if(t === undefined && sib) {
+                    sib = sib(true) as Text;
+                } else sib = (t!(t!(-1) as number, sib) as Text);
+                return sib;
+            } else if(i === 1 && !sib) {sib = t as Text;return sib;}
+            return sib!(i - 1, t);
+        }
         const n = (next: boolean) => next ? sib : (util.isValid(sib));//next
         const v = (sx?: Syntax) => util.isValid(sib) ? s + sib!(sx) : s;//value
         const d = (str: string) => util.isValid(sib) ? sib!(str + s) : str + s;//debug
@@ -811,24 +820,168 @@ namespace dsv {
         }
         const f = (sz: Serializer, sx: Syntax) => sz(this);
         const p = (a: any, b: any) => {//plain
-            if(arguments.length === 1) {}
             switch (arguments.length) {
                 case 0:
                 default:
-                    break;
-                case 1:
-                    break;
-                case 2:
-                    break;
+                    return v();
+                case 1: {
+                    if(typeof a === "boolean") return n(a);
+                    if(typeof a === "number") return x(a);
+                    if(typeof a === "string") return d(a);
+                    if(typeof a === "object" && Object.keys(a).filter(x => ["delimeter", "eol", "field", "header"].includes(x)).length > 0) return v(a as Syntax);
+                    else return fe(a as mem.expression.Expression);
+                }
+                case 2:{
+                    if(typeof a === "number") return x(a, b as Text);
+                    return f(a as Serializer, b as Syntax);
+                }
             }
         }
+        p.prototype.equals = (o?: object) => {
+            return o && (o as any).sib && (o as any).sib! === sib;
+        }
+        p.prototype.hashCode32 = () => util.asHashable(sib ? sib("") : null).hashCode32();
+        return p;
     } as PC
     type Coded = Text & {};
-    type CC = (s: string) => Coded;
+    type CC = (s: string, sibling?: Text | null) => Coded;
+    const Coded = function(this: Coded, s: string, sibling: Text|null = null) {
+        let sib: Text|null = sibling as Text;//sibling
+        const x: (i: number, t?: Text | null) => Text | null | number = (i: number, t?: Text | null) => {
+            if(i < 0) return 1 + ((util.isValid(sib) ? sib!(i) : 0) as number);
+            if(i === 0) {
+                if(t === undefined && sib) {
+                    sib = sib(true) as Text;
+                } else sib = (t!(t!(-1) as number, sib) as Text);
+                return sib;
+            } else if(i === 1 && !sib) {sib = t as Text;return sib;}
+            return sib!(i - 1, t);
+        }
+        const n = (next: boolean) => next ? sib : (util.isValid(sib));//next
+        const v = (sx?: Syntax) => util.isValid(sib) ? sx!.field.escape.parse(s, sx!) + sib!(sx) : sx!.field.escape.parse(s, sx!);//value
+        const d = (str: string) => util.isValid(sib) ? sib!(str + s) : str + s;//debug
+        const fe = (e: mem.expression.Expression) => {//from expression
+            const p = e();//primitive
+            if(!util.isValid(p)) return "";
+            return String(p);
+        }
+        const f = (sz: Serializer, sx: Syntax) => sz(this);
+        const p = (a: any, b: any) => {//plain
+            switch (arguments.length) {
+                case 0:
+                default:
+                    return v();
+                case 1: {
+                    if(typeof a === "boolean") return n(a);
+                    if(typeof a === "number") return x(a);
+                    if(typeof a === "string") return d(a);
+                    if(typeof a === "object" && Object.keys(a).filter(x => ["delimeter", "eol", "field", "header"].includes(x)).length > 0) return v(a as Syntax);
+                    else return fe(a as mem.expression.Expression);
+                }
+                case 2:{
+                    if(typeof a === "number") return x(a, b as Text);
+                    return f(a as Serializer, b as Syntax);
+                }
+            }
+        }
+        p.prototype.equals = (o?: object) => {
+            return o && (o as any).sib && (o as any).sib! === sib;
+        }
+        p.prototype.hashCode32 = () => util.asHashable(sib ? sib("") : null).hashCode32();
+        return p;
+    } as CC
     type StartField = Text & {};
-    type SC = (s: string) => StartField;
+    type SC = (s?: Text | null) => StartField;
+    const StartField = function(this: StartField, sib: Text | null = null) {
+        const x: (i: number, t?: Text | null) => Text | null | number = (i: number, t?: Text | null) => {
+            if(i < 0) return 1 + ((util.isValid(sib) ? sib!(i) : 0) as number);
+            if(i === 0) {
+                if(t === undefined && sib) {
+                    sib = sib(true) as Text;
+                } else sib = (t!(t!(-1) as number, sib) as Text);
+                return sib;
+            } else if(i === 1 && !sib) {sib = t as Text;return sib;}
+            return sib!(i - 1, t);
+        }
+        const n = (next: boolean) => next ? sib : (util.isValid(sib));//next
+        const v = (sx?: Syntax) => util.isValid(sib) ? sx!.field.quotes[0] + sib!(sx) : sx!.field.quotes[0];//value
+        const d = (str: string) => util.isValid(sib) ? sib!(str + "\"") : str + "\"";//debug
+        const fe = (e: mem.expression.Expression) => {//from expression
+            const p = e();//primitive
+            if(!util.isValid(p)) return "";
+            return String(p);
+        }
+        const f = (sz: Serializer, sx: Syntax) => sz(this);
+        const p = (a: any, b: any) => {//plain
+            switch (arguments.length) {
+                case 0:
+                default:
+                    return v();
+                case 1: {
+                    if(typeof a === "boolean") return n(a);
+                    if(typeof a === "number") return x(a);
+                    if(typeof a === "string") return d(a);
+                    if(typeof a === "object" && Object.keys(a).filter(x => ["delimeter", "eol", "field", "header"].includes(x)).length > 0) return v(a as Syntax);
+                    else return fe(a as mem.expression.Expression);
+                }
+                case 2:{
+                    if(typeof a === "number") return x(a, b as Text);
+                    return f(a as Serializer, b as Syntax);
+                }
+            }
+        }
+        p.prototype.equals = (o?: object) => {
+            return o && (o as any).sib && (o as any).sib! === sib;
+        }
+        p.prototype.hashCode32 = () => util.asHashable(sib ? sib("") : null).hashCode32();
+        return p;
+    } as SC;
     type EndField = Text & {};
-    type EC = (s: string) => EndField;
+    type EC = (s?: Text | null) => EndField;
+    const EndField = function(this: EndField, sib: Text | null = null) {
+        const x: (i: number, t?: Text | null) => Text | null | number = (i: number, t?: Text | null) => {
+            if(i < 0) return 1 + ((util.isValid(sib) ? sib!(i) : 0) as number);
+            if(i === 0) {
+                if(t === undefined && sib) {
+                    sib = sib(true) as Text;
+                } else sib = (t!(t!(-1) as number, sib) as Text);
+                return sib;
+            } else if(i === 1 && !sib) {sib = t as Text;return sib;}
+            return sib!(i - 1, t);
+        }
+        const n = (next: boolean) => next ? sib : (util.isValid(sib));//next
+        const v = (sx?: Syntax) => util.isValid(sib) ? sx!.field.quotes[1] + sib!(sx) : sx!.field.quotes[1];//value
+        const d = (str: string) => util.isValid(sib) ? sib!(str + "\"") : str + "\"";//debug
+        const fe = (e: mem.expression.Expression) => {//from expression
+            const p = e();//primitive
+            if(!util.isValid(p)) return "";
+            return String(p);
+        }
+        const f = (sz: Serializer, sx: Syntax) => sz(this);
+        const p = (a: any, b: any) => {//plain
+            switch (arguments.length) {
+                case 0:
+                default:
+                    return v();
+                case 1: {
+                    if(typeof a === "boolean") return n(a);
+                    if(typeof a === "number") return x(a);
+                    if(typeof a === "string") return d(a);
+                    if(typeof a === "object" && Object.keys(a).filter(x => ["delimeter", "eol", "field", "header"].includes(x)).length > 0) return v(a as Syntax);
+                    else return fe(a as mem.expression.Expression);
+                }
+                case 2:{
+                    if(typeof a === "number") return x(a, b as Text);
+                    return f(a as Serializer, b as Syntax);
+                }
+            }
+        }
+        p.prototype.equals = (o?: object) => {
+            return o && (o as any).sib && (o as any).sib! === sib;
+        }
+        p.prototype.hashCode32 = () => util.asHashable(sib ? sib("") : null).hashCode32();
+        return p;
+    } as EC;
     export type Cell = Expression & {
         /**
          * Gets the parsed value whereby the initial value of this cell has been processed by all the available parsers
@@ -883,14 +1036,13 @@ namespace dsv {
     };
     export type CellConstructor = {
         // new (cell: CellIndex, text?: Text): Cell;
-        (cell: CellIndex, text?: Text): Cell;
+        (cell: CellIndex, text?: Text | null): Cell;
     }
-    export const Cell = function(this: Cell, cell: CellIndex, text: Text) {
+    export const Cell = function(this: Cell, cell: CellIndex, text: Text | null = null) {
         const i = new CellIndex(cell.row, cell.col);
-        const t = text;
-        const p = (s?: Syntax) => t(s);
-        const f = (e: mem.expression.Expression) => t(e);
-        const g = (f: mem.expression.Format, s?: Syntax) => t(f, s);
+        const p = (s?: Syntax) => text!(s);
+        const f = (e: mem.expression.Expression) => text!(e);
+        const g = (f: mem.expression.Format, s?: Syntax) => text!(f, s);
         const o = <T>(prev: T, val: T) => {
         }
     } as CellConstructor;
