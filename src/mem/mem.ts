@@ -81,11 +81,11 @@ namespace mem {
         export type GType<T> = Type & {
             readonly id: T;
         };
-        export type TypeConstructor = {
+        export type GTypeConstructor = {
             new(id: string, precedence: number): GType<string>;
             (id: string, precedence: number): GType<string>;
         }
-        export const GType: TypeConstructor = function (this: GType<string> | void, id: string, precedence: number) {
+        export const GType: GTypeConstructor = function (this: GType<string>, id: string, precedence: number) {
             if (new.target) {
                 // (this! as any).prototype = Object.prototype;
                 (this! as any).id = id;
@@ -102,7 +102,7 @@ namespace mem {
                 // return Object.freeze(doppleganger as GType<string>);
                 return new GType(id, precedence);
             }
-        } as TypeConstructor;
+        } as GTypeConstructor;
         export type Token = util.Hashable & util.Predicatable & util.Comparable<Token> & {
             /**
              * The begining of the line from which the token
@@ -152,11 +152,11 @@ namespace mem {
         export type GToken<T> = Token & {
             readonly value: T;
         };
-        export type TokenConstructor = {
+        export type GTokenConstructor = {
             new(value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number): GToken<string>
             (value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number): GToken<string>
         }
-        export const GToken: TokenConstructor = function (this: GToken<string> | void, value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number) {
+        export const GToken: GTokenConstructor = function (this: GToken<string> | void, value: string, type: GType<string>, lineStart: number, lineEnd: number, startPos: number) {
             if (new.target) {
                 // (this! as any).prototype = Object.prototype;
                 (this! as any).value = value;
@@ -210,7 +210,7 @@ namespace mem {
                 // return Object.freeze(doppleganger as GToken<string>);
                 return new GToken(value, type, lineStart, lineEnd, startPos);
             }
-        } as TokenConstructor;
+        } as GTokenConstructor;
     }
     export namespace parser {
         export type ParseError<C extends unknown = any> = DataError<C> & {
@@ -469,13 +469,16 @@ namespace mem {
             readonly mill: TokenFactory;
             position(): number;
             line(): number;
+            prototype: ThisType<Lexer>;
             // next(syntax: Syntax): token.Token;
             (syntax?: Syntax): token.Token;//callable. Queries the lexer
         };
         export type GLexer<T extends token.Token, S extends Syntax> = Lexer & {
             (syntax?: S): T;
+            prototype: ThisType<GLexer<T, S>>
         };
         export type MutableLexer<T extends token.Token, S extends Syntax, CHUNK = string> = GLexer<T, S> & {
+            prototype: ThisType<MutableLexer<T, S>>
             /**
              * @summary Gets and returns the list of tokens that have already been processed.
              * @description
@@ -562,7 +565,7 @@ namespace mem {
             (lexer: L, syntax: S): E;
         }
         export type PrattParser<E extends expression.Expression, S extends GSyntax<token.Type, GCommand<token.GToken<T>, E, S, GLexer<token.GToken<T>, S>, PrattParser<E, S, T>>>, T = string> = GParser<E, S, GLexer<token.GToken<T>, S>> & {
-            (beginingPrecedence: number, lexer: GLexer<token.GToken<T>, S>, syntax: S): E;
+            (beginningPrecedence: number, lexer: GLexer<token.GToken<T>, S>, syntax: S): E;
             consume(expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
             match(expected: token.GType<T>, lexer: GLexer<token.GToken<T>, S>, syntax: S): boolean;
             readAndPop(lexer: GLexer<token.GToken<T>, S>, syntax: S): token.GToken<T>;
@@ -767,7 +770,7 @@ namespace mem {
              */
             readonly tab: string;
             /**
-             * The value that represnts the whitespace character `\x20`.
+             * The value that represents the whitespace character `\x20`.
              * @type {string}
              * @readonly
              */

@@ -5,7 +5,9 @@
   "description": "A package for parsing, transforming and formatting serialized data",
   "main": "index.js",
   "scripts": {
-    "test": "tsc && node ./.bin/tests/toml.test"
+    "test": "tsc && node ./.bin/tests/toml.test",
+    "dev:tsx": "tsx watch ./src/mem/index.ts",
+    "dev:tsc": "tsc ./src/mem/index.ts --noEmit --watch --module esnext"
   },
   "repository": {
     "type": "git",
@@ -20,10 +22,11 @@
   "homepage": "https://github.com/tonyoruovo/Projects.Node.Typescript.Data-Serialization-Format#readme",
   "devDependencies": {
     "@types/node": "^20",
-    "typescript": "^4"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "decimal.js": "^10",
-    "iconv-lite": "^0.6"
+    "iconv-lite": "^0.6",
+    "tsx": "^4.20.3"
   }
 }

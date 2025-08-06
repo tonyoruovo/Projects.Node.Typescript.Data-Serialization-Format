@@ -292,7 +292,7 @@ namespace dsv {
     }
     export const lt = Symbol("lt");
     export const Lexer = function (this: Lexer | void) {
-        type TokenFactory = mem.parser.TokenFactory;
+        type TokenFactory = mem.parser.TokenFactory & {prototype: TokenFactory};
         type Tokenizer = mem.parser.Tokenizer;
         const queue: Token[] = [];
         let p = 1, l = 1;
@@ -675,7 +675,7 @@ namespace dsv {
         }
         const position = () => p;
         const line = () => l;
-        const nx = (() => {
+        const nx = (function() {
             while (true) {
                 if (!hasTokens()) break;
                 return queue.shift()!;
@@ -684,14 +684,14 @@ namespace dsv {
         }) as Lexer;
         const shiftSrc = (distance: number) => {
             const rv: string = nx.src.substring(0, distance);
-            nx.src = nx.src.substring(distance);
+            (nx.prototype as any).src = nx.src.substring(distance);
             p += distance;
             return rv;
         }
         // const escIsEven = () => esc % 2 === 0;
         const process = (chunk: string, syntax: Syntax) => {
-            (nx as any).mill = constructMill(syntax);
-            nx.src += chunk;
+            (nx as any).prototype.mill = constructMill(syntax);
+            (nx.prototype as any).src += chunk;
             while (nx.src.length > 0) {
                 let t = shiftSrc(1);
 
@@ -712,7 +712,7 @@ namespace dsv {
         nx.position = position;
         nx.line = line;
         nx.process = process;
-        nx.src = src;
+        (nx.prototype as any).src = src;
         // (nx as any).mill = {};
         // if(new.target) {
         //     this!.prototype = nx.prototype;
@@ -898,7 +898,7 @@ namespace dsv {
     export const flip = Symbol("flip");
     export const html = Symbol("html");
     export const rLength = Symbol("rLength");
-    /**All mutative operations (inserts, appendage, prependage, deletion, swaps, splits & mergers triggers parsers to be called).*/
+    /**All mutative operations (inserts, appendage, prependage, deletion, swaps, splits & mergers) triggers parsers to be called.*/
     export type Table = Expression & {//table headers are at row 0
         (syntax?: Syntax): (readonly string[][]) | readonly Cell[][];//primitive
         /**

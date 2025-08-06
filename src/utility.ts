@@ -35,7 +35,7 @@ namespace utility {
   })();
   /**
    * Gets this platforms end-of-line `string`
-   * @constant {string} a value that represents the end-of-line string on this ooperating system
+   * @constant {string} a value that represents the end-of-line string on this operating system
    */
   export const eol: string = EOL;
   /**
@@ -123,38 +123,38 @@ namespace utility {
   export type BigAsyncIndexable<E> =
   (index: bigint, value?: E) => Promise<E | undefined>;
   export type ForEachCallback<E, A> =
-  (element: E, index: number | bigint, thisArray: A) => void;
+  (element: E, index: number, thisArray: A) => void;
   export type MapCallback<E, A, R> =
-  (element: E, index: number | bigint, thisArray: A) => R;
+  (element: E, index: number, thisArray: A) => R;
   export type ReduceCallback<E, A, R> =
-  (previous: R, current: E, currentIndex: number | bigint, thisArray: A) => R;
-  export type FilterCallback<E, A, R extends E> =
-  (element: E, index: number | bigint, array: A) => element is R;
+  (previous: R, current: E, currentIndex: number, thisArray: A) => R;
+  export type FilterCallback<E, A> =
+  (element: E, index: number, array: A) => boolean;
   export interface StreamableArray<E = any> extends Generator<E, any, E | undefined>, Streamable<E>, Indexable<E>, BigIndexable<E> {
     [Symbol.isConcatSpreadable](): boolean;
     temp(): E[];
     forEach(callback: ForEachCallback<E, StreamableArray<E>>, bindee?: any): void;
     map<R>(callback: MapCallback<E, StreamableArray<E>, R>, bindee?: any): StreamableArray<R>;
     reduce<R>(callback: ReduceCallback<E, StreamableArray<E>, R>, initial?: R, bindee?: any): R;
-    filter<R extends E>(predicate: FilterCallback<E, StreamableArray<E>, R>, bindee?: any): StreamableArray<E>;
-    every<R extends E>(predicate: FilterCallback<E, StreamableArray<E>, R>, bindee?: any): this is StreamableArray<E>;
-    some(predicate: FilterCallback<E, StreamableArray<E>, E>, bindee?: any): boolean;
+    filter<R extends E>(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): StreamableArray<E>;
+    every<R extends E>(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): this is StreamableArray<E>;
+    some(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): boolean;
     sort(comparator?: Comparator<E>): this;
-    push(...items: E[]): number | bigint;
+    push(...items: E[]): number;
     pop(): E | undefined;
     shift(): E | undefined;
     slice(start: number, end?: number): StreamableArray<E>;
     splice(start: number, deleteCount?: number, ...items: E[]): StreamableArray<E>;
-    unshift(...items: E[]): number | bigint;
+    unshift(...items: E[]): number;
   }
   export interface AsyncStreamableArray<E = any> extends AsyncGenerator<E, any, E | undefined>, AsyncStreamable<E>, AsyncIndexable<E>, BigAsyncIndexable<E> {
     temp(): E[];//Promise<E[]>;
     forEach(callback: ForEachCallback<E, StreamableArray<E>>, bindee?: any): Promise<void>;
     map<R>(callback: MapCallback<E, StreamableArray<E>, R>, bindee?: any): Promise<StreamableArray<R>>;
     reduce<R>(callback: ReduceCallback<E, StreamableArray<E>, R>, initial?: R, bindee?: any): Promise<R>;
-    filter<R extends E>(predicate: FilterCallback<E, StreamableArray<E>, R>, bindee?: any): Promise<StreamableArray<E>>;
-    every<R extends E>(predicate: FilterCallback<E, StreamableArray<E>, R>, bindee?: any): Promise<boolean>;
-    some(predicate: FilterCallback<E, StreamableArray<E>, E>, bindee?: any): Promise<boolean>;
+    filter<R extends E>(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): Promise<StreamableArray<E>>;
+    every<R extends E>(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): Promise<boolean>;
+    some(predicate: FilterCallback<E, StreamableArray<E>>, bindee?: any): Promise<boolean>;
     sort(comparator?: Comparator<E>): Promise<this>;
     push(...items: E[]): Promise<number | bigint>;
     pop(): Promise<E | undefined>;
@@ -1371,6 +1371,40 @@ namespace utility {
     return b;
   }
   /**
+   * Creates a property descriptor intended for readonly properties
+   * 
+   * #### Usage @example
+   * Object.defineProperties(MyType, {
+   *   myProp: readonlyPropDescriptor(myValue)
+   *   // ... other properties
+   * })
+   * 
+   * @param value the value to be assigned
+   * @returns a `PropertyDescriptor` for the input
+   */
+  export function readonlyPropDescriptor<T>(value: T): PropertyDescriptor {
+      return {
+          value,
+          writable: false,
+          enumerable: true,
+          configurable: false
+      }
+  }
+
+  /**
+   * Create a property descriptor for mutable properties
+   * @param value the value to be assigned
+   * @returns a `PropertyDescriptor` for the input
+   */
+  export function writablePropDescriptor<T>(value: T): PropertyDescriptor {
+      return {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true
+      }
+  }
+  /**
    * Switches on the number of bits given by the argument and returns the bits as a `bigint` value.
    * @param {number} numOfBits the number of bits to be switched on. a value of 0 results in
    * 0 being returned
@@ -1502,6 +1536,30 @@ namespace utility {
    */
   export function isValid(x: any): boolean {
     return x !== undefined && x !== null;
+  }
+  /**
+   * Checks whether or not the input `=== undefined` and returns `true` if it is
+   * @param x the value to be checked
+   * @returns {boolean} `true` if `x` is `undefined` else returns `false`
+   */
+  export function isUndefined(x: any): x is undefined {
+    return x === undefined
+  }
+  /**
+   * Checks whether or not the input `=== null` and returns `true` if it is
+   * @param x the value to be checked
+   * @returns {boolean} `true` if `x` is `null` else returns `false`
+   */
+  export function isNull(x: any): x is null {
+    return x === null
+  }
+  /**
+   * Checks whether or not the input is null` or `undefined` and returns `true` if it is
+   * @param x the value to be checked
+   * @returns {boolean} `true` if `x` is `null | undefined` else returns `false`
+   */
+  export function isInvalid(x: any): x is null | undefined {
+    return isUndefined(x) && isNull(x)
   }
   /**
    * Capitalises the argument and returns the result.
