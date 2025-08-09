@@ -1,0 +1,97 @@
+# .prettierignore
+# This file tells Prettier which files and directories to ignore when formatting.
+# It uses the same pattern matching rules as .gitignore.
+
+# -----------------------------------------------------------------------------
+# 1. Build Output Directories
+#    These directories contain compiled or generated code that shouldn't be
+#    formatted by Prettier, as they are not source files and their formatting
+#    is often handled by the build process or is irrelevant.
+# -----------------------------------------------------------------------------
+# Ignore the 'dist' directory (common for compiled JavaScript)
+/dist/      
+# Ignore the 'build' directory (another common build output)
+/build/     
+# Ignore the 'out' directory (sometimes used for output)
+/out/       
+# Ignore test coverage reports
+/coverage/
+# Project build folder
+/.bin/
+
+# -----------------------------------------------------------------------------
+# 2. Dependency Directories
+#    Third-party dependencies should never be formatted by your project's
+#    Prettier configuration.
+# -----------------------------------------------------------------------------
+# Ignore the 'node_modules' directory (all installed packages)
+/node_modules/ 
+
+# -----------------------------------------------------------------------------
+# 3. Configuration Files (Optional)
+#    You might choose to ignore certain configuration files if you don't want
+#    Prettier to enforce formatting on them, or if they follow a specific
+#    format that Prettier might alter undesirably.
+# -----------------------------------------------------------------------------
+# Ignore ESLint config (if it's a JS file)
+.eslintrc.js    
+# Ignore ESLint config (if it's a JSON file)
+.eslintrc.json  
+# Ignore Prettier config itself (if it's a JS file)
+prettier.config.js 
+# Ignore Prettier config (if it's a .rc file)
+.prettierrc     
+# Ignore Prettier config (if it's a JSON file)
+.prettierrc.json 
+# Ignore TypeScript config
+tsconfig.json   
+# Generic ignore for JavaScript config files in the root
+*.config.js     
+# Generic ignore for TypeScript config files in the root
+*.config.ts     
+
+# -----------------------------------------------------------------------------
+# 4. Documentation, Logs, and Temporary Files
+#    Files that are not code and don't need formatting.
+# -----------------------------------------------------------------------------
+# Ignore documentation directories
+/docs/          
+# Ignore log directories
+/logs/          
+# Ignore all .log files
+*.log           
+# Ignore temporary files
+*.tmp           
+# Ignore temporary files
+*.temp          
+# Environment variables file
+.env            
+# All environment variable files
+.env.* 
+# macOS specific temporary file
+.DS_Store       
+# Windows specific temporary file
+Thumbs.db       
+
+# -----------------------------------------------------------------------------
+# 5. Specific File Types (Optional)
+#    Ignore file types that Prettier doesn't support or shouldn't touch.
+#    This includes data serialization formats that are not typically
+#    auto-formatted.
+# -----------------------------------------------------------------------------
+# Ignore Markdown files (unless you use Prettier for Markdown)
+*.md            
+# Ignore plain text files
+*.txt           
+# Ignore JSON files (unless you use Prettier for JSON)
+*.json          
+# Ignore YAML files
+*.yml           
+# Ignore YAML files
+*.yaml          
+# Ignore TOML files (Prettier has limited TOML support)
+*.toml          
+# Ignore CSV files
+*.csv           
+# Ignore INI files
+*.ini           

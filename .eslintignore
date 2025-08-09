@@ -1,0 +1,104 @@
+# This file tells ESLint which files and directories to ignore when linting.
+# It uses the same pattern matching rules as .gitignore.
+
+# -----------------------------------------------------------------------------
+# 1. Build Output Directories
+#    These directories contain compiled or transpiled code that ESLint shouldn't
+#    lint, as it's not your source code and may contain generated syntax.
+# -----------------------------------------------------------------------------
+# Ignore the 'dist' directory (common for compiled JavaScript)
+/dist/      
+# Ignore the 'build' directory (another common build output)
+/build/     
+# Ignore the 'out' directory (sometimes used for output)
+/out/       
+# Ignore test coverage reports
+/coverage/  
+# 
+/.bin/      
+
+# -----------------------------------------------------------------------------
+# 2. Dependency Directories
+#    Node.js package dependencies should not be linted.
+# -----------------------------------------------------------------------------
+# Ignore the 'node_modules' directory (all installed packages)
+/node_modules/ 
+
+# -----------------------------------------------------------------------------
+# 3. Configuration Files (if linted separately or not relevant for code style)
+#    Sometimes, you might want to exclude certain config files if they have
+#    their own linting rules or are not meant to conform to your general
+#    code style.
+# -----------------------------------------------------------------------------
+# Ignore the ESLint config itself (if it's a .js file)
+.eslintrc.js    
+# Ignore the ESLint config itself (if it's a .json file)
+.eslintrc.json  
+# Ignore Prettier config (if it's a .js file)
+prettier.config.js 
+# Ignore Prettier config (if it's a .rc file)
+.prettierrc     
+# Ignore Prettier config (if it's a .json file)
+.prettierrc.json 
+# Ignore TypeScript config
+tsconfig.json   
+# Generic ignore for JavaScript config files in the root
+*.config.js     
+# Generic ignore for TypeScript config files in the root
+*.config.ts     
+
+# -----------------------------------------------------------------------------
+# 4. Documentation, Logs, and Temporary Files
+#    Files that are not source code and don't need linting.
+# -----------------------------------------------------------------------------
+# Ignore documentation directories
+/docs/          
+# Ignore log directories
+/logs/          
+# Ignore all .log files
+*.log           
+# Ignore temporary files
+*.tmp           
+# Ignore temporary files
+*.temp          
+# Environment variables file
+.env            
+# All environment variable files
+.env.* 
+# macOS specific temporary file
+.DS_Store       
+# Windows specific temporary file
+Thumbs.db       
+
+# -----------------------------------------------------------------------------
+# 5. Test-related Files (Optional, depending on your testing setup)
+#    If you have specific linting rules for test files, or if your test runner
+#    generates files you don't want linted.
+# -----------------------------------------------------------------------------
+# Uncomment to ignore a 'test' directory
+# /test/          
+# Uncomment to ignore all .test.ts files
+# **/*.test.ts    
+# Uncomment to ignore all .spec.ts files
+# **/*.spec.ts    
+
+# -----------------------------------------------------------------------------
+# 6. Specific File Types (Optional)
+#    If you have other non-code files that ESLint might try to process.
+# -----------------------------------------------------------------------------
+# Ignore Markdown files
+*.md            
+# Ignore plain text files
+*.txt           
+# Ignore JSON files (unless you have a specific JSON linter)
+*.json          
+# Ignore YAML files
+*.yml           
+# Ignore YAML files
+*.yaml          
+# Ignore TOML files
+*.toml          
+# Ignore CSV files
+*.csv           
+# Ignore INI files
+*.ini           

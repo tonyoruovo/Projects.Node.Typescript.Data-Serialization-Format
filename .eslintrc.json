@@ -1,0 +1,61 @@
+{
+  // Specifies the ESLint parser for TypeScript
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": "latest", // Allows for the parsing of modern ECMAScript features
+    "sourceType": "module", // Allows for the use of imports
+    // Project is required for type-aware linting rules
+    // Adjust this path if your tsconfig.json is not in the root
+    "project": "./tsconfig.json"
+  },
+  // Extends recommended ESLint and TypeScript-specific rule sets,
+  // and integrates Prettier to avoid style conflicts.
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:prettier/recommended" // Enables eslint-plugin-prettier and eslint-config-prettier
+  ],
+  "plugins": [
+    "@typescript-eslint" // Enables TypeScript-specific linting rules
+  ],
+  "env": {
+    "node": true, // Defines Node.js global variables and Node.js scoping
+    "es2022": true // Adds all ECMAScript 2022 globals and syntax
+  },
+  "rules": {
+    // Custom rules or overrides can go here.
+    // Examples:
+    // "@typescript-eslint/explicit-module-boundary-types": "off", // Disable requiring explicit return types on functions and methods
+    // "@typescript-eslint/no-explicit-any": "error", // Ensure 'any' type is explicitly disallowed
+    // "prettier/prettier": ["error", { "endOfLine": "auto" }], // Enforce Prettier rules as ESLint errors
+    
+    // Disable a rule from @typescript-eslint/recommended that might conflict with BigInt usage if not careful
+    // or if you prefer to manage number types explicitly without BigInt being strictly enforced as number
+    "@typescript-eslint/no-loss-of-precision": "off",
+
+    // Allow unused variables if they start with an underscore (common for ignored parameters)
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    
+    // Enforce consistent import statements without file extensions (handled by moduleResolution in tsconfig)
+    "import/extensions": "off" // This rule would typically come from an 'eslint-plugin-import' if you were using it.
+                                // Since you're not, this is a placeholder to show where you'd disable it.
+    
+    // If you want to enforce specific import orders or group imports, you'd add rules from `eslint-plugin-import` here.
+    // For example:
+    // "import/order": [
+    //   "error",
+    //   {
+    //     "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
+    //     "newlines-between": "always",
+    //     "alphabetize": { "order": "asc", "caseInsensitive": true }
+    //   }
+    // ]
+  },
+  // Settings for specific plugins (if needed)
+  "settings": {
+    // You might need to configure 'import/resolver' if you use path aliases
+    // "import/resolver": {
+    //   "typescript": {} // This tells eslint-plugin-import to use your tsconfig.json for path resolution
+    // }
+  }
+}
